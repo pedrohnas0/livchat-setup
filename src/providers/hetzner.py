@@ -11,7 +11,7 @@ from hcloud.images.domain import Image
 from hcloud.locations.domain import Location
 from hcloud.ssh_keys.domain import SSHKey
 
-from providers import ProviderInterface
+from .base import ProviderInterface
 
 logger = logging.getLogger(__name__)
 

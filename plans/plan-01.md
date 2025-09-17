@@ -1,262 +1,224 @@
-# Plan 01: Setup Inicial + Primeiro Servidor Hetzner
+# Plan 01: Refatoração Arquitetural
 
-## 📋 Resumo
-Implementar a base do LivChat Setup com foco em simplicidade: configuração inicial, gerenciamento de estado e criação do primeiro servidor na Hetzner.
+## 📋 Status Atual
+✅ **MVP Implementado e Funcional** - O código base está 100% implementado e testado:
+- ConfigManager, StateManager, SecretsManager funcionando
+- HetznerProvider implementado com hcloud SDK
+- CLI básico operacional
+- Estrutura de persistência em ~/.livchat/ funcionando
 
-## 🎯 Objetivo do Sprint
-Conseguir executar:
+## 🎯 Objetivo da Refatoração
+Reorganizar o código existente para seguir a arquitetura definida em CLAUDE.md, mantendo toda a funcionalidade atual mas com estrutura mais escalável e profissional.
+
+## 🔄 De → Para
+
+### Estrutura Atual (Funcional mas Desorganizada)
+```
+src/
+├── __init__.py      # 160 linhas - fazendo papel de orchestrator ❌
+├── config.py        # ConfigManager separado
+├── state.py         # StateManager separado
+├── vault.py         # SecretsManager (deveria ser secrets.py)
+├── cli.py          # CLI entry point
+└── providers/
+    ├── __init__.py  # Interface base
+    └── hetzner.py   # Provider implementado
+```
+
+### Nova Estrutura (Arquitetura Limpa)
+```
+src/
+├── __init__.py          # APENAS exports públicos (~20 linhas)
+├── orchestrator.py      # Core + DependencyResolver (~200 linhas)
+├── storage.py           # ConfigStore + StateStore + SecretsStore (~400 linhas)
+├── cli.py              # Mantém como está
+├── providers/          # Mantém estrutura
+│   ├── __init__.py
+│   ├── base.py         # Extrair interface para arquivo próprio
+│   └── hetzner.py
+├── integrations/       # CRIAR estrutura para futuras integrações
+│   └── __init__.py
+└── api/                # CRIAR estrutura para futura API
+    └── __init__.py
+```
+
+## ✅ Checklist de Refatoração
+
+### Fase 1: Preparação [30 min]
+- [ ] Criar branch `refactor/architecture`
+- [ ] Fazer backup completo do código atual
+- [ ] Criar estruturas de diretórios faltantes:
+  - [ ] `src/integrations/`
+  - [ ] `src/api/`
+- [ ] Instalar dependências adicionais se necessário
+
+### Fase 2: Unificar Storage [1h]
+- [ ] Criar `src/storage.py` com estrutura unificada:
+  ```python
+  class ConfigStore:  # Mover de config.py
+  class StateStore:   # Mover de state.py
+  class SecretsStore: # Mover de vault.py
+
+  class StorageManager:  # Nova classe unificadora
+      def __init__(self):
+          self.config = ConfigStore()
+          self.state = StateStore()
+          self.secrets = SecretsStore()
+  ```
+- [ ] Migrar código de `config.py` → `ConfigStore`
+- [ ] Migrar código de `state.py` → `StateStore`
+- [ ] Migrar código de `vault.py` → `SecretsStore`
+- [ ] Adicionar interface unificada no `StorageManager`
+- [ ] Remover arquivos antigos após validação
+
+### Fase 3: Refatorar Orchestrator [45 min]
+- [ ] Criar `src/orchestrator.py`
+- [ ] Mover lógica de `__init__.py:LivChatSetup` → `orchestrator.py:Orchestrator`
+- [ ] Adicionar `DependencyResolver` no mesmo arquivo:
+  ```python
+  class DependencyResolver:
+      def resolve_install_order(self, apps: List[str]) -> List[str]
+      def validate_dependencies(self, app: str) -> bool
+
+  class Orchestrator:  # Antiga LivChatSetup
+      def __init__(self):
+          self.storage = StorageManager()
+          self.resolver = DependencyResolver()
+  ```
+- [ ] Atualizar imports em todos os lugares que usam
+
+### Fase 4: Limpar __init__.py [15 min]
+- [ ] Reduzir `__init__.py` para apenas exports:
+  ```python
+  """LivChat Setup - Automated server setup and deployment"""
+
+  from .orchestrator import Orchestrator
+  from .storage import StorageManager
+
+  __version__ = "0.1.0"
+  __all__ = ["Orchestrator", "StorageManager"]
+  ```
+
+### Fase 5: Organizar Providers [20 min]
+- [ ] Criar `src/providers/base.py`
+- [ ] Mover `ProviderInterface` de `__init__.py` → `base.py`
+- [ ] Atualizar imports em `hetzner.py`
+- [ ] Garantir que `providers/__init__.py` exporta corretamente
+
+### Fase 6: Atualizar Imports e CLI [30 min]
+- [ ] Atualizar `cli.py` para usar novos imports:
+  ```python
+  from orchestrator import Orchestrator
+  # ao invés de
+  from __init__ import LivChatSetup
+  ```
+- [ ] Atualizar `setup.py` se necessário
+- [ ] Verificar todos os imports cruzados
+
+### Fase 7: Testes de Regressão [30 min]
+- [ ] Teste 1: Inicialização
+  ```bash
+  python -c "from src.orchestrator import Orchestrator; o = Orchestrator(); o.init()"
+  ```
+- [ ] Teste 2: CLI funciona
+  ```bash
+  python src/cli.py init
+  python src/cli.py list-servers
+  ```
+- [ ] Teste 3: Criação de servidor (mock)
+- [ ] Teste 4: Persistência funciona
+- [ ] Teste 5: Secrets continuam criptografados
+
+### Fase 8: Documentação e Cleanup [20 min]
+- [ ] Atualizar docstrings nos novos arquivos
+- [ ] Remover arquivos antigos:
+  - [ ] `config.py`
+  - [ ] `state.py`
+  - [ ] `vault.py`
+- [ ] Atualizar README.md com novos imports
+- [ ] Commit com mensagem clara sobre refatoração
+
+## 🧪 Validação Pós-Refatoração
+
+### Teste de Fumaça Completo
 ```python
-from livchat import LivChatSetup
+# Deve funcionar exatamente como antes
+from src.orchestrator import Orchestrator
 
-setup = LivChatSetup()
+# 1. Inicializar
+setup = Orchestrator()
 setup.init()
-setup.configure_provider("hetzner", token="xxx")
-server = setup.create_server("test-01", "cx21", "nbg1")
-print(f"Server created: {server['ip']}")
+
+# 2. Verificar estrutura ~/.livchat/
+assert Path("~/.livchat/config.yaml").exists()
+assert Path("~/.livchat/state.json").exists()
+assert Path("~/.livchat/credentials.vault").exists()
+
+# 3. Configurar provider
+setup.configure_provider("hetzner", "test_token")
+
+# 4. Verificar persistência
+setup2 = Orchestrator()
+token = setup2.storage.secrets.get_secret("hetzner_token")
+assert token == "test_token"
+
+print("✅ Refatoração bem-sucedida!")
 ```
 
-## 📁 Estruturas de Dados (Versões Simples)
-
-### `.livchat/config.yaml`
-```yaml
-version: 1
-provider: hetzner
-region: nbg1
-server_type: cx21
-```
-
-### `.livchat/state.json`
-```json
-{
-  "servers": {
-    "test-01": {
-      "provider": "hetzner",
-      "id": "12345",
-      "ip": "1.2.3.4",
-      "type": "cx21",
-      "region": "nbg1",
-      "created_at": "2024-12-16T10:00:00Z"
-    }
-  }
-}
-```
-
-### `.livchat/credentials.vault`
-```
-Arquivo criptografado com Ansible Vault contendo:
-{
-  "hetzner_token": "xxx",
-  "cloudflare_token": "yyy"
-}
-```
-
-## ✅ Checklist de Implementação
-
-### Fase 1: Estrutura Base
-- [ ] Criar estrutura de diretórios do projeto
-- [ ] Criar `requirements.txt` com dependências iniciais
-- [ ] Criar `setup.py` para instalação
-- [ ] Criar `__init__.py` com classe principal `LivChatSetup`
-- [ ] Implementar logging básico
-
-### Fase 2: Gerenciamento de Configuração
-- [ ] Criar classe `ConfigManager`
-  - [ ] Método `init()` - criar `.livchat/`
-  - [ ] Método `load_config()` - ler `config.yaml`
-  - [ ] Método `save_config()` - salvar `config.yaml`
-  - [ ] Método `get(key)` - buscar configuração
-  - [ ] Método `set(key, value)` - atualizar configuração
-
-### Fase 3: Gerenciamento de Estado
-- [ ] Criar classe `StateManager`
-  - [ ] Método `load_state()` - ler `state.json`
-  - [ ] Método `save_state()` - salvar `state.json`
-  - [ ] Método `add_server(server_data)` - adicionar servidor
-  - [ ] Método `get_server(name)` - buscar servidor
-  - [ ] Método `list_servers()` - listar todos
-  - [ ] Método `remove_server(name)` - remover servidor
-
-### Fase 4: Gerenciamento de Secrets
-- [ ] Criar classe `SecretsManager`
-  - [ ] Método `init_vault()` - criar senha do vault
-  - [ ] Método `encrypt(data)` - criptografar dados
-  - [ ] Método `decrypt()` - decriptar vault
-  - [ ] Método `set_secret(key, value)` - adicionar secret
-  - [ ] Método `get_secret(key)` - buscar secret
-
-### Fase 5: Provider Hetzner
-- [ ] Criar classe `HetznerProvider`
-  - [ ] Método `__init__(token)` - inicializar com token
-  - [ ] Método `create_server(name, type, location)` - criar servidor
-  - [ ] Método `list_servers()` - listar servidores
-  - [ ] Método `get_server(id)` - buscar servidor
-  - [ ] Método `delete_server(id)` - deletar servidor
-  - [ ] Tratamento de erros da API
-
-### Fase 6: Integração
-- [ ] Conectar `LivChatSetup` com todos os managers
-- [ ] Implementar fluxo completo de criação
-- [ ] Adicionar validações
-- [ ] Implementar rollback em caso de erro
-
-## 🧪 Testes de Validação
-
-### Teste 1: Inicialização
+### Verificação de Imports
 ```python
-def test_init():
-    """Verifica se .livchat/ é criado corretamente"""
-    setup = LivChatSetup()
-    setup.init()
-
-    assert Path("~/.livchat").exists()
-    assert Path("~/.livchat/config.yaml").exists()
-    assert Path("~/.livchat/state.json").exists()
-    print("✅ Inicialização OK")
-```
-
-### Teste 2: Configuração
-```python
-def test_config():
-    """Verifica leitura e escrita de configurações"""
-    setup = LivChatSetup()
-
-    # Escrever
-    setup.config.set("test_key", "test_value")
-
-    # Ler
-    value = setup.config.get("test_key")
-    assert value == "test_value"
-
-    # Persistência
-    setup2 = LivChatSetup()
-    assert setup2.config.get("test_key") == "test_value"
-    print("✅ Configuração OK")
-```
-
-### Teste 3: Secrets
-```python
-def test_secrets():
-    """Verifica criptografia e decriptografia"""
-    setup = LivChatSetup()
-
-    # Salvar secret
-    setup.secrets.set_secret("test_token", "secret123")
-
-    # Recuperar
-    token = setup.secrets.get_secret("test_token")
-    assert token == "secret123"
-
-    # Verificar que está criptografado no arquivo
-    with open("~/.livchat/credentials.vault", "r") as f:
-        content = f.read()
-        assert "secret123" not in content
-    print("✅ Secrets OK")
-```
-
-### Teste 4: Estado
-```python
-def test_state():
-    """Verifica gerenciamento de estado"""
-    setup = LivChatSetup()
-
-    # Adicionar servidor
-    server_data = {
-        "provider": "hetzner",
-        "id": "123",
-        "ip": "1.2.3.4",
-        "type": "cx21"
-    }
-    setup.state.add_server("test-01", server_data)
-
-    # Recuperar
-    server = setup.state.get_server("test-01")
-    assert server["ip"] == "1.2.3.4"
-
-    # Listar
-    servers = setup.state.list_servers()
-    assert len(servers) == 1
-    print("✅ Estado OK")
-```
-
-### Teste 5: Criação Real (Hetzner)
-```python
-def test_create_server_real():
-    """Teste E2E com Hetzner real (requer token válido)"""
-    setup = LivChatSetup()
-
-    # Configurar token (manual para teste)
-    token = input("Digite o token Hetzner: ")
-    setup.configure_provider("hetzner", token)
-
-    # Criar servidor
-    server = setup.create_server(
-        name="test-livchat-01",
-        type="cx21",
-        region="nbg1"
-    )
-
-    assert server["ip"] is not None
-    assert server["id"] is not None
-
-    # Verificar no estado
-    saved = setup.state.get_server("test-livchat-01")
-    assert saved["ip"] == server["ip"]
-
-    # Cleanup
-    setup.delete_server("test-livchat-01")
-    print("✅ Criação real OK")
-```
-
-### Teste 6: Fluxo Completo
-```python
-def test_complete_flow():
-    """Teste do fluxo completo do usuário"""
-    # 1. Nova instalação
-    setup = LivChatSetup()
-    setup.init()
-
-    # 2. Configurar provider
-    setup.configure_provider("hetzner", "fake_token")
-
-    # 3. Verificar configuração salva
-    assert setup.secrets.get_secret("hetzner_token") == "fake_token"
-
-    # 4. Simular criação (mock)
-    with mock.patch('hetzner.create_server'):
-        server = setup.create_server("prod-01", "cx21", "nbg1")
-        assert setup.state.get_server("prod-01") is not None
-
-    print("✅ Fluxo completo OK")
+# Todos esses imports devem funcionar
+from src.orchestrator import Orchestrator, DependencyResolver
+from src.storage import StorageManager, ConfigStore, StateStore, SecretsStore
+from src.providers.base import ProviderInterface
+from src.providers.hetzner import HetznerProvider
+from src.integrations import *  # Preparado para futuro
+from src.api import *  # Preparado para futuro
 ```
 
 ## 📊 Critérios de Sucesso
 
-1. ✅ `.livchat/` criado com estrutura correta
-2. ✅ Configurações persistem entre execuções
-3. ✅ Secrets são criptografados
-4. ✅ Estado é mantido em `state.json`
-5. ✅ Servidor criado na Hetzner com SDK oficial
-6. ✅ Todos os testes passam
+1. ✅ TODO o código Python dentro de `src/`
+2. ✅ Nenhuma lógica de negócio em `__init__.py`
+3. ✅ Storage unificado em um arquivo
+4. ✅ Orchestrator explícito e encontrável
+5. ✅ Todos os testes anteriores continuam passando
+6. ✅ Estrutura pronta para crescer (integrations/, api/)
+7. ✅ Imports mais claros e pythônicos
 
-## 🚫 Fora de Escopo (Por Enquanto)
+## ⚠️ Riscos e Mitigações
 
-- Interface CLI completa
-- Múltiplos providers
-- Deploy de aplicações
-- Integração com Ansible
-- API REST
-- MCP Server
+| Risco | Mitigação |
+|-------|-----------|
+| Quebrar funcionalidade existente | Backup completo + testes de regressão |
+| Imports circulares | Cuidado com dependências, testar cada fase |
+| Perder dados em ~/.livchat/ | Não tocar em ~/.livchat/, só no código |
+| Conflitos de merge | Trabalhar em branch separada |
 
-## 📅 Timeline
+## 📅 Timeline Estimado
 
-- **Dia 1**: Estrutura base + ConfigManager + StateManager
-- **Dia 2**: SecretsManager + HetznerProvider
-- **Dia 3**: Integração + Testes + Refinamentos
+- **Total**: ~4 horas de trabalho focado
+- **Fase 1-2**: 1h30 (Storage unificado)
+- **Fase 3-4**: 1h (Orchestrator + cleanup)
+- **Fase 5-6**: 50min (Providers + CLI)
+- **Fase 7-8**: 50min (Testes + Docs)
 
-## 🔄 Próximos Passos (Plan 02)
+## 🚀 Próximos Passos (Pós-Refatoração)
 
-Após conclusão bem-sucedida:
-1. Adicionar Ansible Runner
-2. Implementar instalação do Docker/Traefik/Portainer
-3. Sistema de dependências entre apps
-4. Primeiras aplicações (postgres, redis)
+1. **Plan 02**: Implementar DependencyResolver completo
+2. **Plan 03**: Adicionar primeiras integrações (Portainer, Cloudflare)
+3. **Plan 04**: Criar API FastAPI básica
+4. **Plan 05**: Implementar Ansible Runner
+
+## 📝 Notas Importantes
+
+- **NÃO** alterar a estrutura de ~/.livchat/ (já está funcionando)
+- **NÃO** mudar a lógica de negócio, apenas reorganizar
+- **SIM** manter compatibilidade com código existente
+- **SIM** fazer commits incrementais para poder reverter
+
+---
+
+*Última atualização: 2024-12-17*
+*Status: Pronto para Execução*
+*Tipo: Refatoração Arquitetural*

@@ -5,7 +5,11 @@ import argparse
 import logging
 from pathlib import Path
 
-from __init__ import LivChatSetup
+try:
+    from .orchestrator import Orchestrator
+except ImportError:
+    # For direct execution
+    from orchestrator import Orchestrator
 
 # Configure logging
 logging.basicConfig(
@@ -52,9 +56,9 @@ def main():
         parser.print_help()
         return 1
 
-    # Initialize LivChat Setup
+    # Initialize Orchestrator
     config_dir = getattr(args, 'config_dir', None)
-    setup = LivChatSetup(config_dir)
+    setup = Orchestrator(config_dir)
 
     # Execute command
     try:

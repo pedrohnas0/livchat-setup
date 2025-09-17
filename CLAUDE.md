@@ -123,25 +123,29 @@ class CoreOrchestrator:
     ]
 ```
 
-#### **State Manager** [DECIDIDO]
+#### **Storage Manager** [DECIDIDO]
 ```python
-class StateManager:
-    """Persistência e gestão de estado local"""
+class StorageManager:
+    """Gerenciamento unificado de persistência"""
+
+    def __init__(self):
+        self.config = ConfigStore()      # Configurações YAML
+        self.state = StateStore()        # Estado JSON
+        self.secrets = SecretsStore()    # Vault criptografado
 
     storage_path = "~/.livchat/"
 
     files = {
-        "servers.json": "Estado dos servidores",
-        "deployments.json": "Histórico de deployments",
-        "config.yaml": "Configurações globais",
-        "credentials.vault": "Secrets criptografados"
+        "config.yaml": "Configurações do usuário",
+        "state.json": "Estado dos servidores e deployments",
+        "credentials.vault": "Secrets criptografados com Ansible Vault"
     }
 
     features = [
-        "CRUD operations",
-        "Versionamento de estado",
+        "Interface unificada para toda persistência",
         "Backup automático antes de mudanças",
-        "Validação de integridade"
+        "Validação de integridade",
+        "Gerenciamento centralizado do ~/.livchat/"
     ]
 ```
 
@@ -232,20 +236,22 @@ class PostDeployConfiguration:
 
 ```
 Core Orchestrator
-    ├── State Manager (estado persistente)
-    ├── Secrets Manager (credenciais)
+    ├── Storage Manager (persistência unificada)
+    │   ├── ConfigStore (YAML)
+    │   ├── StateStore (JSON)
+    │   └── SecretsStore (Vault)
+    ├── Dependency Resolver (parte do orchestrator.py)
     ├── Provider Module
     │   └── Connection Manager (SSH/API)
-    ├── Dependency Resolver
-    │   └── App Registry (catálogo)
     ├── Ansible Runner
     │   └── Connection Manager
-    ├── Integration Module
+    ├── Integrations
     │   ├── Portainer API
     │   └── Cloudflare API
-    └── Monitoring Module
+    └── API Server (FastAPI)
+        └── Routes
 
-MCP Gateway → Core Orchestrator (via API)
+MCP Gateway → API Server → Core Orchestrator
 ```
 
 ## 5. Key Features & Requirements
@@ -356,30 +362,28 @@ apps:
 ### 7.1 Directory Organization [DECIDIDO]
 
 ```
-livchat-setup/
-├── src/                      # Core source code
-│   ├── __init__.py
-│   ├── core/                 # Core orchestration
+LivChatSetup/
+├── src/                      # All Python source code
+│   ├── __init__.py          # Package exports only
+│   ├── orchestrator.py      # Core orchestration + dependency resolution
+│   ├── storage.py           # Unified config + state + secrets management
+│   ├── cli.py              # CLI entry point
+│   ├── providers/          # Cloud provider implementations
+│   │   ├── __init__.py     # Base interface
+│   │   ├── base.py         # Abstract provider class
+│   │   └── hetzner.py      # Hetzner implementation
+│   ├── integrations/       # External service integrations
 │   │   ├── __init__.py
-│   │   ├── orchestrator.py
-│   │   └── dependencies.py
-│   ├── config/               # Configuration management
-│   │   ├── __init__.py
-│   │   └── manager.py
-│   ├── state/                # State management
-│   │   ├── __init__.py
-│   │   └── manager.py
-│   ├── secrets/              # Secrets management
-│   │   ├── __init__.py
-│   │   └── vault.py
-│   ├── providers/            # Provider implementations
-│   │   ├── __init__.py
-│   │   ├── base.py
-│   │   └── hetzner.py
-│   └── cli.py               # CLI entry point
+│   │   ├── portainer.py    # Portainer API client
+│   │   └── cloudflare.py   # Cloudflare API client
+│   └── api/                # REST API (FastAPI)
+│       ├── __init__.py
+│       ├── server.py       # FastAPI application
+│       ├── routes/         # API endpoints
+│       └── schemas/        # Pydantic models
 │
-├── apps/                     # Application definitions
-│   ├── catalog.yaml          # App registry
+├── apps/                    # Application definitions (YAML)
+│   ├── catalog.yaml        # App registry
 │   └── definitions/
 │       ├── databases/
 │       │   ├── postgres.yaml
@@ -388,7 +392,7 @@ livchat-setup/
 │           ├── n8n.yaml
 │           └── chatwoot.yaml
 │
-├── ansible/                  # Ansible playbooks
+├── ansible/                # Ansible automation
 │   ├── playbooks/
 │   │   ├── base-setup.yml
 │   │   └── app-deploy.yml
@@ -396,65 +400,76 @@ livchat-setup/
 │   ├── inventory/
 │   └── group_vars/
 │
-├── integrations/             # External integrations
-│   ├── __init__.py
-│   ├── portainer.py
-│   └── cloudflare.py
-│
-├── api/                      # FastAPI REST API [FUTURO]
-│   ├── __init__.py
-│   ├── main.py
-│   ├── routes/
-│   └── schemas/
-│
-├── mcp-server/              # MCP Server (TypeScript)
+├── mcp-server/            # MCP Server (TypeScript)
 │   ├── src/
 │   │   ├── server.ts
 │   │   └── tools/
 │   ├── package.json
 │   └── tsconfig.json
 │
-├── tests/                   # Tests
+├── tests/                 # Test suite
 │   ├── unit/
 │   ├── integration/
 │   └── e2e/
 │
-├── docs/                    # Documentation
+├── docs/                  # Documentation
 │   ├── guides/
 │   └── api/
 │
-├── scripts/                 # Utility scripts
+├── scripts/               # Utility scripts
 │   ├── install.sh
 │   └── dev-setup.sh
 │
-├── .livchat/               # Default config location (user home)
-│   ├── config.yaml
-│   ├── state.json
-│   └── credentials.vault
+├── .livchat/             # User config directory (in $HOME)
+│   ├── config.yaml       # User configuration
+│   ├── state.json        # Application state
+│   └── credentials.vault # Encrypted secrets
 │
-├── pyproject.toml          # Python project config
-├── requirements.txt        # Python dependencies
-├── Makefile               # Common tasks
-├── DESIGN.md              # This document
-└── README.md
+├── pyproject.toml        # Python project configuration
+├── requirements.txt      # Python dependencies
+├── Makefile             # Common tasks automation
+├── CLAUDE.md            # This design document
+└── README.md            # Project documentation
 ```
 
 ### 7.2 Rationale [DECIDIDO]
 
 **Por que esta estrutura?**
 
-1. **`src/` flat**: Evita redundância de `src/livchat/`, código mais direto
-2. **Separação clara**: Core, apps, ansible, integrations são distintos
-3. **Apps como YAML**: Facilita adicionar novas aplicações sem código
-4. **MCP isolado**: TypeScript separado do Python
-5. **`.livchat/` padrão**: Configuração do usuário fora do código
+1. **`src/` centralizado**: TODO código Python em um único diretório
+   - Integrations DENTRO de src/ (não espalhado)
+   - API DENTRO de src/ (não separado)
+   - Imports claros e consistentes
+
+2. **`storage.py` unificado**: Gerenciamento centralizado de persistência
+   - Config, State e Secrets em um só lugar
+   - ~400 linhas é tamanho ideal
+   - Ainda modular internamente (classes separadas)
+   - Ponto único para gerenciar ~/.livchat/
+
+3. **`orchestrator.py` explícito**: Lógica principal fora de __init__.py
+   - __init__.py apenas para exports públicos (padrão Python)
+   - Inclui DependencyResolver (intimamente relacionado)
+   - Fácil de encontrar o código principal
+
+4. **Separação por tipo de conteúdo**:
+   - `src/` → Todo código Python
+   - `apps/` → Definições YAML (dados, não código)
+   - `ansible/` → Playbooks (automação)
+   - `mcp-server/` → TypeScript (projeto isolado)
+
+5. **Estrutura escalável**: Pronta para crescer
+   - `providers/` → Fácil adicionar novos
+   - `integrations/` → Fácil adicionar serviços
+   - `api/routes/` → Fácil adicionar endpoints
 
 **Decisões importantes:**
-- Sem `src/livchat/` redundante - mais direto
+- **NO** código Python fora de `src/` (exceto scripts auxiliares)
+- **NO** lógica de negócio em `__init__.py` (anti-pattern)
+- **YES** consolidação onde faz sentido (storage.py)
+- **YES** subpastas quando há múltiplos arquivos relacionados
 - Apps definidas em YAML, não em Python
-- Ansible separado mas integrado
-- MCP como projeto independente
-- Testes próximos ao código que testam
+- Testes seguem estrutura de src/
 
 ## 8. API Design
 
