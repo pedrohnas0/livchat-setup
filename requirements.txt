@@ -1,0 +1,10 @@
+# Core dependencies
+pyyaml
+hcloud
+ansible-core
+cryptography
+
+# Development dependencies
+pytest
+pytest-asyncio
+pytest-mock
