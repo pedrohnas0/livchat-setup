@@ -407,10 +407,14 @@ LivChatSetup/
 │   ├── package.json
 │   └── tsconfig.json
 │
-├── tests/                 # Test suite
-│   ├── unit/
-│   ├── integration/
-│   └── e2e/
+├── tests/                 # Test suite (TDD approach)
+│   ├── unit/             # Unit tests for isolated components
+│   ├── integration/      # Integration tests
+│   └── e2e/              # End-to-end tests
+│
+├── plans/                 # Development planning documents
+│   ├── plan-01.md        # Refactoring plan
+│   └── ...               # Future sprint plans
 │
 ├── docs/                  # Documentation
 │   ├── guides/
@@ -419,6 +423,8 @@ LivChatSetup/
 ├── scripts/               # Utility scripts
 │   ├── install.sh
 │   └── dev-setup.sh
+│
+├── venv/                  # Python virtual environment (git-ignored)
 │
 ├── .livchat/             # User config directory (in $HOME)
 │   ├── config.yaml       # User configuration
@@ -586,9 +592,31 @@ config = {
 - [ ] Documentation
 - [ ] Docker image
 
-## 11. Testing Strategy
+## 11. Development Practices
 
-### Unit Tests [A DESENVOLVER]
+### Development Environment
+- **Virtual Environment**: Sempre usar `venv/` para desenvolvimento
+  ```bash
+  source venv/bin/activate  # Ativar antes de qualquer execução
+  pip install -r requirements.txt
+  ```
+
+### Test-Driven Development (TDD)
+- **Escrever testes ANTES da implementação** quando possível
+- **Mínimo 80% de cobertura** para código crítico (storage, orchestrator)
+- **Executar testes frequentemente** durante desenvolvimento
+  ```bash
+  pytest tests/unit/  # Durante desenvolvimento
+  pytest --cov=src    # Verificar cobertura
+  ```
+
+### Planning Process
+- **Documentar planos em `plans/`** antes de implementações grandes
+- **Revisar e atualizar** planos conforme desenvolvimento evolui
+
+## 12. Testing Strategy
+
+### Unit Tests [IMPLEMENTADO]
 ```python
 # pytest + pytest-asyncio
 tests/

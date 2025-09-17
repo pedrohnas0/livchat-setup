@@ -42,13 +42,24 @@ class DependencyResolver:
         resolved = []
         to_resolve = apps.copy()
 
+        # Collect all dependencies needed
+        all_deps = set()
+        for app in apps:
+            deps = self.dependencies.get(app, [])
+            all_deps.update(deps)
+
+        # Add dependencies that aren't in the original list
+        for dep in all_deps:
+            if dep not in to_resolve:
+                to_resolve.append(dep)
+
         while to_resolve:
             # Find apps with no unresolved dependencies
             can_install = []
             for app in to_resolve:
                 deps = self.dependencies.get(app, [])
-                # Check if all dependencies are resolved or not in our install list
-                if all(dep in resolved or dep not in apps for dep in deps):
+                # Check if all dependencies are resolved
+                if all(dep in resolved for dep in deps):
                     can_install.append(app)
 
             if not can_install:
@@ -59,11 +70,6 @@ class DependencyResolver:
             # Add resolvable apps to resolved list
             for app in can_install:
                 if app not in resolved:
-                    # First add the dependencies that are in our install list
-                    for dep in self.dependencies.get(app, []):
-                        if dep in apps and dep not in resolved:
-                            resolved.append(dep)
-                    # Then add the app itself
                     resolved.append(app)
                     to_resolve.remove(app)
 
