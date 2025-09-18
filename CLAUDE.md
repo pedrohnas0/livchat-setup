@@ -621,31 +621,35 @@ config = {
 
 ## 10. Implementation Phases
 
-### Phase 1: Core & Base [Weeks 1-2]
+### Phase 1: Core & Base [✅ COMPLETED]
 - [x] Design document
 - [x] Project structure
 - [x] Core orchestrator
 - [x] State manager
-- [ ] Basic API
+- [x] Basic API
+📄 **Plan-01:** Initial refactoring and base structure
 
-### Phase 2: Provider & Apps [Weeks 3-4]
+### Phase 2: Provider & Apps [✅ COMPLETED]
 - [x] Hetzner provider
-- [⏳] Ansible runner (Em desenvolvimento - Plan-02)
+- [x] Ansible runner
 - [x] Dependency resolver (Básico implementado)
-- [⏳] Basic apps (postgres, redis) (Em desenvolvimento - Plan-02)
+- [x] Basic apps (Traefik deployado com sucesso)
+📄 **Plan-02:** Ansible Runner + SSH Keys + Base Infrastructure
 
-### Phase 3: Integrations [Week 5]
-- [ ] Portainer API
-- [ ] Cloudflare API
+### Phase 3: Integrations [🔵 IN PLANNING]
+- [ ] Portainer API (cliente próprio)
+- [ ] Cloudflare API (SDK oficial)
+- [ ] App Registry com YAML
 - [ ] Post-deploy configs
+📄 **Plan-03:** Integration Layer - Portainer, Cloudflare & App Registry
 
-### Phase 4: MCP Gateway [Week 6]
+### Phase 4: MCP Gateway [⚪ PLANNED]
 - [ ] TypeScript server
 - [ ] Tool implementations
 - [ ] NPM package
 
-### Phase 5: Testing & Polish [Weeks 7-8]
-- [ ] Unit tests
+### Phase 5: Testing & Polish [⚪ PLANNED]
+- [ ] Unit tests completos
 - [ ] Integration tests
 - [ ] Documentation
 - [ ] Docker image
@@ -671,6 +675,36 @@ config = {
 ### Planning Process
 - **Documentar planos em `plans/`** antes de implementações grandes
 - **Revisar e atualizar** planos conforme desenvolvimento evolui
+- **Usar Etapas e Tasks** ao invés de prazos temporais (dias/semanas)
+- **TDD approach** com testes escritos antes da implementação
+
+### Plan Structure Standard
+Todos os planos de desenvolvimento devem seguir esta estrutura:
+
+1. **📋 Contexto**: Referência ao CLAUDE.md e status atual
+2. **🎯 Objetivo**: Meta clara e mensurável
+3. **📊 Escopo Definitivo**: Componentes detalhados com código exemplo
+4. **🧪 Estratégia de Testes TDD**: Test-first approach
+5. **📁 Estrutura de Arquivos**: Coerente com CLAUDE.md
+6. **✅ Checklist de Implementação**:
+   - Organizado por **Etapas** (não dias/semanas)
+   - Cada etapa com **Tasks** numeradas
+   - Formato: `Etapa 1: Component Name`
+     - `Task 1: Specific action`
+     - `Task 2: Another action`
+7. **📦 Dependências Novas**: Packages necessários
+8. **🎮 CLI Commands**: Novos comandos a implementar
+9. **🎯 Critérios de Sucesso**: Verificações objetivas
+10. **📊 Métricas**: KPIs mensuráveis (sem prazos temporais)
+11. **⚠️ Considerações Importantes**: Decisões técnicas
+12. **🚀 Próximos Passos**: Visão do próximo plan
+13. **📊 Status**: Tracking do progresso
+
+**Status Legend para Plans:**
+- 🔵 **READY TO START**: Planejado e pronto
+- 🟡 **IN PROGRESS**: Em desenvolvimento
+- ✅ **COMPLETED**: Fase concluída
+- 🔴 **BLOCKED**: Aguardando dependências
 
 ## 12. Testing Strategy
 

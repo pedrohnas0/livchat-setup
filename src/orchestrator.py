@@ -10,6 +10,7 @@ try:
     from .ssh_manager import SSHKeyManager
     from .ansible_executor import AnsibleRunner
     from .server_setup import ServerSetup
+    from .security_utils import CredentialsManager, PasswordGenerator
 except ImportError:
     # For direct execution
     from storage import StorageManager
@@ -17,6 +18,7 @@ except ImportError:
     from ssh_manager import SSHKeyManager
     from ansible_executor import AnsibleRunner
     from server_setup import ServerSetup
+    from security_utils import CredentialsManager, PasswordGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -165,6 +167,7 @@ class Orchestrator:
 
         # Initialize new components
         self.ssh_manager = SSHKeyManager(self.storage)
+        self.credentials = CredentialsManager(self.storage)
         self.ansible_runner = AnsibleRunner(self.ssh_manager)
         self.server_setup = ServerSetup(self.ansible_runner)
 
@@ -509,6 +512,38 @@ class Orchestrator:
             config["ssl_email"] = ssl_email
 
         result = self.server_setup.deploy_traefik(server, config)
+        return result.success
+
+    def deploy_portainer(self, server_name: str, config: Dict = None) -> bool:
+        """
+        Deploy Portainer CE on a server
+
+        Args:
+            server_name: Name of the server
+            config: Portainer configuration (admin_password, https_port, etc)
+
+        Returns:
+            True if successful
+        """
+        server = self.get_server(server_name)
+        if not server:
+            logger.error(f"Server {server_name} not found")
+            return False
+
+        logger.info(f"Deploying Portainer on server {server_name}")
+
+        # Deploy Portainer
+        result = self.server_setup.deploy_portainer(server, config or {})
+
+        if result.success:
+            logger.info(f"Portainer deployed successfully on {server_name}")
+
+            # Update server state
+            apps = self.storage.state.get_server(server_name).get('applications', [])
+            if 'portainer' not in apps:
+                apps.append('portainer')
+                self.storage.state.update_server(server_name, {'applications': apps})
+
         return result.success
 
 

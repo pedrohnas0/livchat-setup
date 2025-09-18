@@ -32,9 +32,10 @@ def main():
     init_parser.add_argument('--config-dir', type=Path, help='Configuration directory')
 
     # Configure command
-    config_parser = subparsers.add_parser('configure', help='Configure provider')
-    config_parser.add_argument('provider', help='Provider name (e.g., hetzner)')
-    config_parser.add_argument('--token', required=True, help='API token')
+    config_parser = subparsers.add_parser('configure', help='Configure provider or settings')
+    config_parser.add_argument('provider', nargs='?', help='Provider name (e.g., hetzner)')
+    config_parser.add_argument('--token', help='API token for provider')
+    config_parser.add_argument('--admin-email', help='Default admin email for applications')
 
     # Create server command
     create_parser = subparsers.add_parser('create-server', help='Create a new server')
@@ -69,6 +70,12 @@ def main():
     traefik_parser.add_argument('name', help='Server name')
     traefik_parser.add_argument('--ssl-email', help='Email for Let\'s Encrypt')
 
+    # Deploy Portainer command
+    portainer_parser = subparsers.add_parser('deploy-portainer', help='Deploy Portainer CE')
+    portainer_parser.add_argument('name', help='Server name')
+    portainer_parser.add_argument('--admin-password', help='Admin password (default: admin123!@#)')
+    portainer_parser.add_argument('--https-port', type=int, default=9443, help='HTTPS port (default: 9443)')
+
     # Parse arguments
     args = parser.parse_args()
 
@@ -88,8 +95,22 @@ def main():
             print(f"Configuration directory: {setup.config_dir}")
 
         elif args.command == 'configure':
-            setup.configure_provider(args.provider, args.token)
-            print(f"✅ Provider {args.provider} configured successfully")
+            # Configure admin email if provided
+            if hasattr(args, 'admin_email') and args.admin_email:
+                setup.storage.config.set('admin_email', args.admin_email)
+                setup.storage.config.save()
+                print(f"✅ Admin email configured: {args.admin_email}")
+
+            # Configure provider if provided
+            if args.provider and args.token:
+                setup.configure_provider(args.provider, args.token)
+                print(f"✅ Provider {args.provider} configured successfully")
+            elif args.provider and not args.token:
+                print("❌ Error: --token is required when configuring a provider")
+                return 1
+            elif not args.provider and not args.admin_email:
+                print("❌ Error: Specify a provider with --token, or use --admin-email to set admin email")
+                return 1
 
         elif args.command == 'create-server':
             server = setup.create_server(args.name, args.type, args.region)
@@ -161,6 +182,27 @@ def main():
                     print(f"   SSL Email: {ssl_email}")
             else:
                 print(f"❌ Failed to deploy Traefik")
+                return 1
+
+        elif args.command == 'deploy-portainer':
+            config = {}
+            if hasattr(args, 'admin_password') and args.admin_password:
+                config['portainer_admin_password'] = args.admin_password
+            if hasattr(args, 'https_port') and args.https_port:
+                config['portainer_https_port'] = args.https_port
+
+            print(f"📊 Deploying Portainer on {args.name}...")
+            result = setup.deploy_portainer(args.name, config)
+
+            if result:
+                print(f"✅ Portainer deployed successfully on {args.name}!")
+                server = setup.storage.state.get_server(args.name)
+                if server:
+                    print(f"   Access URL: https://{server.get('ip', 'N/A')}:{config.get('portainer_https_port', 9443)}")
+                    print(f"   Username: admin")
+                    print(f"   Password: {config.get('portainer_admin_password', 'admin123!@#')}")
+            else:
+                print(f"❌ Failed to deploy Portainer")
                 return 1
 
         return 0

@@ -395,6 +395,67 @@ class ServerSetup:
             details={"ssl_email": extra_vars["ssl_email"]}
         )
 
+    def deploy_portainer(self, server: Dict, config: Optional[Dict] = None) -> SetupResult:
+        """
+        Deploy Portainer CE management platform
+
+        Args:
+            server: Server configuration
+            config: Portainer configuration options
+
+        Returns:
+            SetupResult
+        """
+        logger.info(f"Deploying Portainer on {server['name']}")
+
+        playbook_path = self.playbook_dir / "portainer-deploy.yml"
+        inventory = self.create_inventory(server)
+
+        config = config or {}
+
+        # Generate secure password if not provided
+        if "portainer_admin_password" not in config:
+            # Import here to avoid circular dependency
+            from .security_utils import PasswordGenerator
+            password_gen = PasswordGenerator()
+            config["portainer_admin_password"] = password_gen.generate_app_password("portainer")
+            logger.info("Generated secure 64-character password for Portainer")
+
+        extra_vars = {
+            "portainer_version": config.get("portainer_version", "2.19.4"),
+            "portainer_https_port": config.get("portainer_https_port", 9443),
+            "portainer_edge_port": config.get("portainer_edge_port", 8000),
+            "portainer_admin_password": config.get("portainer_admin_password"),
+            "portainer_admin_email": config.get("portainer_admin_email", "pedrohnas0@gmail.com"),
+            "portainer_data_path": config.get("portainer_data_path", "/var/lib/portainer")
+        }
+
+        result = self.ansible_runner.run_playbook(
+            playbook_path=str(playbook_path),
+            inventory=inventory,
+            extra_vars=extra_vars
+        )
+
+        success = result.success
+        self.update_status(server["name"], "portainer-deploy", success,
+                         "Portainer deployed" if success else "Portainer deployment failed")
+
+        if success:
+            logger.info(f"Portainer deployed successfully on {server['name']}")
+            logger.info(f"Access URL: https://{server['ip']}:{extra_vars['portainer_https_port']}")
+            logger.info(f"Username: {extra_vars.get('portainer_admin_username', 'admin')}")
+            logger.info("Password: [Stored securely in Vault]")
+
+        return SetupResult(
+            success=success,
+            step="portainer-deploy",
+            message="Portainer deployed successfully" if success else "Portainer deployment failed",
+            details={
+                "url": f"https://{server['ip']}:{extra_vars['portainer_https_port']}",
+                "username": extra_vars.get('portainer_admin_username', 'admin')
+            }
+        )
+
     def full_setup(self, server: Dict, config: Optional[Dict] = None) -> SetupResult:
         """
         Execute complete server setup

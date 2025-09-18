@@ -1,0 +1,100 @@
+---
+# Deploy Portainer CE via Docker Stack
+# This playbook deploys Portainer Community Edition as a Docker Stack
+
+- name: Deploy Portainer CE
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    portainer_version: "2.19.4"
+    portainer_data_path: "/var/lib/portainer"
+    portainer_admin_password: "{{ vault_portainer_password | default('admin123!@#') }}"
+    portainer_https_port: 9443
+    portainer_edge_port: 8000
+
+  tasks:
+    - name: Ensure Docker is running
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Check if Docker Swarm is initialized
+      shell: docker info --format '{{ '{{' }}.Swarm.LocalNodeState{{ '}}' }}'
+      register: swarm_status
+      changed_when: false
+
+    - name: Fail if not in Swarm mode
+      fail:
+        msg: "Node is not in Swarm mode. Please initialize Swarm first."
+      when: swarm_status.stdout != "active"
+
+    - name: Create Portainer data directory
+      file:
+        path: "{{ portainer_data_path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Check if Portainer is already deployed
+      shell: docker stack ls --format '{{ '{{' }}.Name{{ '}}' }}'
+      register: existing_stacks
+      changed_when: false
+
+    - name: Generate Portainer stack configuration
+      template:
+        src: "{{ playbook_dir }}/../../templates/portainer-stack.j2"
+        dest: /tmp/portainer-stack.yml
+        mode: '0644'
+
+    - name: Deploy Portainer stack
+      shell: |
+        docker stack deploy -c /tmp/portainer-stack.yml portainer
+      when: "'portainer' not in existing_stacks.stdout_lines"
+
+    - name: Update Portainer stack
+      shell: |
+        docker stack deploy -c /tmp/portainer-stack.yml portainer
+      when: "'portainer' in existing_stacks.stdout_lines"
+
+    - name: Wait for Portainer to be healthy
+      uri:
+        url: "https://{{ ansible_default_ipv4.address }}:{{ portainer_https_port }}"
+        method: GET
+        status_code: 200
+        validate_certs: no
+      register: portainer_health
+      until: portainer_health.status == 200
+      retries: 30
+      delay: 10
+
+    - name: Get Portainer service status
+      shell: docker service ls --filter name=portainer_agent --format '{{ '{{' }}.Replicas{{ '}}' }}'
+      register: agent_status
+      changed_when: false
+
+    - name: Display Portainer access information
+      debug:
+        msg:
+          - "========================================="
+          - "Portainer deployed successfully!"
+          - "========================================="
+          - "Access URL: https://{{ ansible_default_ipv4.address }}:{{ portainer_https_port }}"
+          - "Username: admin"
+          - "Password: {{ portainer_admin_password }}"
+          - "Agent Status: {{ agent_status.stdout | default('N/A') }}"
+          - "========================================="
+
+    - name: Clean up temporary files
+      file:
+        path: /tmp/portainer-stack.yml
+        state: absent
+
+  handlers:
+    - name: restart docker
+      systemd:
+        name: docker
+        state: restarted

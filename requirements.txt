@@ -5,6 +5,12 @@ ansible-core>=2.16.0
 ansible-runner>=2.3.0
 cryptography
 
+# Integration dependencies
+httpx>=0.25.0
+tenacity>=8.0.0
+cloudflare>=3.0.0
+jsonschema>=4.0.0
+
 # Development dependencies
 pytest
 pytest-asyncio
