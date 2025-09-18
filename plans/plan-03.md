@@ -14,11 +14,23 @@ Criar a camada de integração para gerenciar aplicações via Portainer e DNS v
 
 ## 🔐 Fluxo de Segurança e Inicialização
 
+### Configuração Inicial Necessária
+```bash
+# 1. Configurar email do admin (usado no Portainer e outras apps)
+livchat-setup configure --admin-email seu@email.com
+
+# 2. Configurar Cloudflare (Global API Key)
+livchat-setup configure --cloudflare-email cloudflare@email.com --cloudflare-key <global_api_key>
+
+# 3. Configurar provider (Hetzner)
+livchat-setup configure hetzner --token <hetzner_token>
+```
+
 ### Gestão de Credenciais com Vault
-- **Senhas Seguras**: 64 caracteres com letras maiúsculas, minúsculas, números e especiais
-- **Armazenamento**: Todas as credenciais no Ansible Vault
-- **Email do Admin**: Configurável via `livchat-setup configure --admin-email seu@email.com`
+- **Senhas Seguras**: 64 caracteres gerados automaticamente
+- **Armazenamento**: Ansible Vault criptografado
 - **Sem Hardcode**: Nenhum dado pessoal no código
+- **Global API Key**: Armazenado com segurança no Vault
 
 ### Inicialização Automática do Portainer
 A API do Portainer **suporta criação automática do primeiro admin** via `/api/users/admin/init`:
