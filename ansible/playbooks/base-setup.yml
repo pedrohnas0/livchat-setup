@@ -1,0 +1,147 @@
+---
+# Base Setup Playbook for LivChat
+# Based on SetupOrion flow
+
+- name: Base Server Setup
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    timezone: "America/Sao_Paulo"
+    hostname: "{{ server_name | default(inventory_hostname) }}"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+      register: apt_update
+      retries: 3
+      delay: 5
+      until: apt_update is succeeded
+
+    - name: Upgrade all packages
+      apt:
+        upgrade: dist
+        autoremove: yes
+        autoclean: yes
+      register: apt_upgrade
+      retries: 3
+      delay: 5
+      until: apt_upgrade is succeeded
+
+    - name: Set timezone
+      shell: |
+        timedatectl set-timezone "{{ timezone }}"
+      changed_when: false
+
+    - name: Install essential packages
+      apt:
+        name:
+          - apt-utils
+          - apparmor-utils
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - software-properties-common
+          - wget
+          - htop
+          - net-tools
+          - git
+          - vim
+          - ufw
+        state: present
+      register: apt_install
+      retries: 3
+      delay: 5
+      until: apt_install is succeeded
+
+    - name: Set hostname
+      hostname:
+        name: "{{ hostname }}"
+
+    - name: Update /etc/hosts with new hostname
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.1\.1'
+        line: "127.0.1.1 {{ hostname }}"
+        backup: yes
+
+    - name: Add hostname to localhost line
+      lineinfile:
+        path: /etc/hosts
+        regexp: '^127\.0\.0\.1'
+        line: "127.0.0.1 localhost {{ hostname }}"
+        backup: yes
+
+    - name: Configure UFW firewall - allow SSH
+      shell: |
+        ufw allow 22/tcp
+      when: ansible_facts['os_family'] == "Debian"
+      ignore_errors: yes
+
+    - name: Configure UFW firewall - allow HTTP
+      shell: |
+        ufw allow 80/tcp
+      when: ansible_facts['os_family'] == "Debian"
+      ignore_errors: yes
+
+    - name: Configure UFW firewall - allow HTTPS
+      shell: |
+        ufw allow 443/tcp
+      when: ansible_facts['os_family'] == "Debian"
+      ignore_errors: yes
+
+    - name: Enable UFW firewall
+      shell: |
+        echo "y" | ufw enable
+      when: ansible_facts['os_family'] == "Debian"
+      ignore_errors: yes  # In case we're in a container
+
+    - name: Create swap file (2GB)
+      command: fallocate -l 2G /swapfile
+      args:
+        creates: /swapfile
+      when: ansible_swaptotal_mb < 1024
+
+    - name: Set swap file permissions
+      file:
+        path: /swapfile
+        mode: '0600'
+      when: ansible_swaptotal_mb < 1024
+
+    - name: Make swap file
+      command: mkswap /swapfile
+      args:
+        creates: /swapfile
+      when: ansible_swaptotal_mb < 1024
+      ignore_errors: yes
+
+    - name: Enable swap file
+      command: swapon /swapfile
+      when: ansible_swaptotal_mb < 1024
+      ignore_errors: yes
+
+    - name: Add swap to fstab
+      lineinfile:
+        path: /etc/fstab
+        line: '/swapfile none swap sw 0 0'
+        state: present
+      when: ansible_swaptotal_mb < 1024
+
+    - name: Set swappiness
+      shell: |
+        sysctl -w vm.swappiness=10
+        echo "vm.swappiness=10" >> /etc/sysctl.conf
+      changed_when: false
+
+    - name: Display setup completion
+      debug:
+        msg: |
+          ✅ Base setup completed!
+          Hostname: {{ hostname }}
+          Timezone: {{ timezone }}
+          IP: {{ ansible_default_ipv4.address | default('N/A') }}
+

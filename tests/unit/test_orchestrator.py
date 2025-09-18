@@ -292,3 +292,96 @@ class TestOrchestrator:
         assert result["valid"] is True
         assert result["app"] == "n8n"
         assert "postgres" in result["dependencies"]
+
+    @patch('src.orchestrator.SSHKeyManager')
+    def test_setup_server_ssh_generates_key(self, mock_ssh_class, temp_config_dir, sample_server_data):
+        """Test setup_server_ssh generates new SSH key"""
+        mock_ssh = Mock()
+        mock_ssh.key_exists.return_value = False
+        mock_ssh.generate_key_pair.return_value = {"name": "test-server_key", "public": "ssh-ed25519 ..."}
+        mock_ssh_class.return_value = mock_ssh
+
+        orchestrator = Orchestrator(temp_config_dir)
+        orchestrator.init()
+        orchestrator.storage.state.add_server("test-server", sample_server_data)
+
+        result = orchestrator.setup_server_ssh("test-server")
+
+        assert result is True
+        mock_ssh.generate_key_pair.assert_called_once_with("test-server_key")
+
+    @patch('src.orchestrator.ServerSetup')
+    @patch('src.orchestrator.SSHKeyManager')
+    def test_setup_server_complete(self, mock_ssh_class, mock_setup_class, temp_config_dir, sample_server_data):
+        """Test complete server setup flow"""
+        mock_ssh = Mock()
+        mock_ssh.key_exists.return_value = True
+        mock_ssh_class.return_value = mock_ssh
+
+        mock_setup = Mock()
+        mock_result = Mock(success=True, step="complete", message="Success", timestamp=Mock(isoformat=lambda: "2024-01-01"), details={})
+        mock_setup.full_setup.return_value = mock_result
+        mock_setup_class.return_value = mock_setup
+
+        orchestrator = Orchestrator(temp_config_dir)
+        orchestrator.init()
+        orchestrator.storage.state.add_server("test-server", sample_server_data)
+
+        result = orchestrator.setup_server("test-server")
+
+        assert result["success"] is True
+        assert result["server"] == "test-server"
+        mock_setup.full_setup.assert_called_once()
+
+    @patch('src.orchestrator.ServerSetup')
+    def test_install_docker(self, mock_setup_class, temp_config_dir, sample_server_data):
+        """Test installing Docker on server"""
+        mock_setup = Mock()
+        mock_result = Mock(success=True)
+        mock_setup.install_docker.return_value = mock_result
+        mock_setup_class.return_value = mock_setup
+
+        orchestrator = Orchestrator(temp_config_dir)
+        orchestrator.init()
+        orchestrator.storage.state.add_server("test-server", sample_server_data)
+
+        result = orchestrator.install_docker("test-server")
+
+        assert result is True
+        mock_setup.install_docker.assert_called_once()
+
+    @patch('src.orchestrator.ServerSetup')
+    def test_init_swarm(self, mock_setup_class, temp_config_dir, sample_server_data):
+        """Test initializing Docker Swarm"""
+        mock_setup = Mock()
+        mock_result = Mock(success=True)
+        mock_setup.init_swarm.return_value = mock_result
+        mock_setup_class.return_value = mock_setup
+
+        orchestrator = Orchestrator(temp_config_dir)
+        orchestrator.init()
+        orchestrator.storage.state.add_server("test-server", sample_server_data)
+
+        result = orchestrator.init_swarm("test-server", "custom_network")
+
+        assert result is True
+        mock_setup.init_swarm.assert_called_once_with(sample_server_data, "custom_network")
+
+    @patch('src.orchestrator.ServerSetup')
+    def test_deploy_traefik(self, mock_setup_class, temp_config_dir, sample_server_data):
+        """Test deploying Traefik"""
+        mock_setup = Mock()
+        mock_result = Mock(success=True)
+        mock_setup.deploy_traefik.return_value = mock_result
+        mock_setup_class.return_value = mock_setup
+
+        orchestrator = Orchestrator(temp_config_dir)
+        orchestrator.init()
+        orchestrator.storage.state.add_server("test-server", sample_server_data)
+
+        result = orchestrator.deploy_traefik("test-server", "admin@example.com")
+
+        assert result is True
+        mock_setup.deploy_traefik.assert_called_once()
+        call_args = mock_setup.deploy_traefik.call_args
+        assert call_args.args[1]["ssl_email"] == "admin@example.com"

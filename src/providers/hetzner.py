@@ -59,8 +59,30 @@ class HetznerProvider(ProviderInterface):
             # Get SSH keys if provided
             ssh_key_objs = []
             if ssh_keys:
+                logger.info(f"Looking for SSH keys: {ssh_keys}")
+
+                # First, list all available SSH keys for debugging
+                all_keys = self.client.ssh_keys.get_all()
+                logger.debug(f"Available SSH keys in Hetzner: {[k.name for k in all_keys]}")
+
                 for key_name in ssh_keys:
-                    ssh_key_objs.append(SSHKey(name=key_name))
+                    # Try to get the SSH key from Hetzner by name
+                    try:
+                        key = self.client.ssh_keys.get_by_name(key_name)
+                        if key:
+                            ssh_key_objs.append(key)
+                            logger.info(f"✅ Found SSH key: {key_name} (ID: {key.id})")
+                        else:
+                            logger.error(f"❌ SSH key {key_name} not found in Hetzner")
+                            # List available keys for debugging
+                            logger.error(f"   Available keys: {[k.name for k in all_keys]}")
+                    except Exception as e:
+                        logger.error(f"❌ Error getting SSH key {key_name}: {e}")
+                        logger.error(f"   Available keys: {[k.name for k in all_keys]}")
+
+            if not ssh_key_objs and ssh_keys:
+                logger.warning("⚠️ No SSH keys found - server will be created without SSH access!")
+                logger.warning("   You may need to use Hetzner console to access the server")
 
             # Create server
             response = self.client.servers.create(

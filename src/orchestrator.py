@@ -7,10 +7,16 @@ from typing import Optional, Dict, Any, List
 try:
     from .storage import StorageManager
     from .providers.hetzner import HetznerProvider
+    from .ssh_manager import SSHKeyManager
+    from .ansible_executor import AnsibleRunner
+    from .server_setup import ServerSetup
 except ImportError:
     # For direct execution
     from storage import StorageManager
     from providers.hetzner import HetznerProvider
+    from ssh_manager import SSHKeyManager
+    from ansible_executor import AnsibleRunner
+    from server_setup import ServerSetup
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +163,11 @@ class Orchestrator:
         self.resolver = DependencyResolver()
         self.provider = None
 
+        # Initialize new components
+        self.ssh_manager = SSHKeyManager(self.storage)
+        self.ansible_runner = AnsibleRunner(self.ssh_manager)
+        self.server_setup = ServerSetup(self.ansible_runner)
+
         # Auto-load existing data if available
         if self.config_dir.exists():
             try:
@@ -223,8 +234,41 @@ class Orchestrator:
 
         logger.info(f"Creating server: {name} ({server_type} in {region})")
 
-        # Create server via provider
-        server = self.provider.create_server(name, server_type, region)
+        # Generate SSH key for the server BEFORE creating it
+        key_name = f"{name}_key"
+        logger.debug(f"Checking if SSH key exists: {key_name}")
+        key_exists = self.ssh_manager.key_exists(key_name)
+        logger.debug(f"SSH key {key_name} exists locally: {key_exists}")
+
+        # Generate key if it doesn't exist locally
+        if not key_exists:
+            logger.info(f"Generating SSH key for {name}")
+            key_info = self.ssh_manager.generate_key_pair(key_name)
+            logger.info(f"SSH key generated: {key_name}")
+
+        # Always ensure the key is added to Hetzner
+        token = self.storage.secrets.get_secret(f"{self.storage.config.get('provider', 'hetzner')}_token")
+        if token:
+            logger.info(f"Ensuring SSH key {key_name} is added to Hetzner...")
+            success = self.ssh_manager.add_to_hetzner(key_name, token)
+            if not success:
+                logger.error(f"❌ Failed to add SSH key {key_name} to Hetzner")
+                # Should we continue without SSH access?
+                raise RuntimeError(f"Cannot add SSH key to Hetzner - server would be inaccessible")
+            else:
+                logger.info(f"✅ SSH key {key_name} is available in Hetzner")
+                # Small delay to ensure key is available
+                import time
+                time.sleep(2)
+        else:
+            logger.error("No Hetzner token available to add SSH key")
+            raise RuntimeError("Cannot add SSH key without Hetzner token")
+
+        # Create server with SSH key
+        server = self.provider.create_server(name, server_type, region, ssh_keys=[key_name])
+
+        # Add SSH key info to server data
+        server["ssh_key"] = key_name
 
         # Save to state
         self.storage.state.add_server(name, server)
@@ -327,6 +371,142 @@ class Orchestrator:
             Validation result
         """
         return self.resolver.validate_dependencies(app)
+
+    def setup_server_ssh(self, server_name: str) -> bool:
+        """
+        Setup SSH key for a server
+
+        Args:
+            server_name: Name of the server
+
+        Returns:
+            True if successful
+        """
+        server = self.get_server(server_name)
+        if not server:
+            logger.error(f"Server {server_name} not found")
+            return False
+
+        # Generate SSH key if not exists
+        key_name = f"{server_name}_key"
+        if not self.ssh_manager.key_exists(key_name):
+            logger.info(f"Generating SSH key for {server_name}")
+            key_info = self.ssh_manager.generate_key_pair(key_name)
+
+            # Save key name in server state
+            server["ssh_key"] = key_name
+            self.storage.state.update_server(server_name, server)
+
+            # Add to provider if configured
+            if self.provider and hasattr(self.provider, 'add_ssh_key'):
+                token = self.storage.secrets.get_secret(f"{server.get('provider', 'hetzner')}_token")
+                if token:
+                    self.ssh_manager.add_to_hetzner(key_name, token)
+
+        return True
+
+    def setup_server(self, server_name: str, config: Optional[Dict] = None) -> Dict[str, Any]:
+        """
+        Run complete server setup
+
+        Args:
+            server_name: Name of the server
+            config: Optional configuration overrides
+
+        Returns:
+            Setup result
+        """
+        server = self.get_server(server_name)
+        if not server:
+            raise ValueError(f"Server {server_name} not found")
+
+        logger.info(f"Starting setup for server {server_name}")
+
+        # Ensure SSH key is configured
+        if not self.setup_server_ssh(server_name):
+            return {
+                "success": False,
+                "message": "Failed to setup SSH key",
+                "server": server_name
+            }
+
+        # Run full setup through ServerSetup
+        result = self.server_setup.full_setup(server, config)
+
+        # Update state with setup status
+        if result.success:
+            server["setup_status"] = "complete"
+            server["setup_date"] = result.timestamp.isoformat()
+        else:
+            server["setup_status"] = f"failed_at_{result.step}"
+            server["setup_error"] = result.message
+
+        self.storage.state.update_server(server_name, server)
+
+        return {
+            "success": result.success,
+            "message": result.message,
+            "server": server_name,
+            "step": result.step,
+            "details": result.details
+        }
+
+    def install_docker(self, server_name: str) -> bool:
+        """
+        Install Docker on a server
+
+        Args:
+            server_name: Name of the server
+
+        Returns:
+            True if successful
+        """
+        server = self.get_server(server_name)
+        if not server:
+            return False
+
+        result = self.server_setup.install_docker(server)
+        return result.success
+
+    def init_swarm(self, server_name: str, network_name: str = "livchat_network") -> bool:
+        """
+        Initialize Docker Swarm on a server
+
+        Args:
+            server_name: Name of the server
+            network_name: Name for the overlay network
+
+        Returns:
+            True if successful
+        """
+        server = self.get_server(server_name)
+        if not server:
+            return False
+
+        result = self.server_setup.init_swarm(server, network_name)
+        return result.success
+
+    def deploy_traefik(self, server_name: str, ssl_email: str = None) -> bool:
+        """
+        Deploy Traefik on a server
+
+        Args:
+            server_name: Name of the server
+            ssl_email: Email for Let's Encrypt SSL
+
+        Returns:
+            True if successful
+        """
+        server = self.get_server(server_name)
+        if not server:
+            return False
+
+        config = {}
+        if ssl_email:
+            config["ssl_email"] = ssl_email
+
+        result = self.server_setup.deploy_traefik(server, config)
+        return result.success
 
 
 # Compatibility alias for migration period

@@ -49,6 +49,26 @@ def main():
     delete_parser = subparsers.add_parser('delete-server', help='Delete a server')
     delete_parser.add_argument('name', help='Server name')
 
+    # Setup server command
+    setup_parser = subparsers.add_parser('setup-server', help='Run complete server setup')
+    setup_parser.add_argument('name', help='Server name')
+    setup_parser.add_argument('--ssl-email', help='Email for SSL certificates')
+    setup_parser.add_argument('--timezone', default='America/Sao_Paulo', help='Server timezone')
+
+    # Install Docker command
+    docker_parser = subparsers.add_parser('install-docker', help='Install Docker on server')
+    docker_parser.add_argument('name', help='Server name')
+
+    # Init Swarm command
+    swarm_parser = subparsers.add_parser('init-swarm', help='Initialize Docker Swarm')
+    swarm_parser.add_argument('name', help='Server name')
+    swarm_parser.add_argument('--network', default='livchat_network', help='Overlay network name')
+
+    # Deploy Traefik command
+    traefik_parser = subparsers.add_parser('deploy-traefik', help='Deploy Traefik reverse proxy')
+    traefik_parser.add_argument('name', help='Server name')
+    traefik_parser.add_argument('--ssl-email', help='Email for Let\'s Encrypt')
+
     # Parse arguments
     args = parser.parse_args()
 
@@ -93,6 +113,54 @@ def main():
                 print(f"✅ Server {args.name} deleted successfully")
             else:
                 print(f"❌ Failed to delete server {args.name}")
+                return 1
+
+        elif args.command == 'setup-server':
+            config = {}
+            if hasattr(args, 'ssl_email') and args.ssl_email:
+                config['ssl_email'] = args.ssl_email
+            if hasattr(args, 'timezone') and args.timezone:
+                config['timezone'] = args.timezone
+
+            print(f"🚀 Starting complete setup for server {args.name}...")
+            result = setup.setup_server(args.name, config)
+
+            if result['success']:
+                print(f"✅ Server {args.name} setup completed successfully!")
+                print(f"   Step: {result['step']}")
+                if 'details' in result:
+                    print(f"   Details: {result['details']}")
+            else:
+                print(f"❌ Server setup failed: {result['message']}")
+                return 1
+
+        elif args.command == 'install-docker':
+            print(f"🐳 Installing Docker on {args.name}...")
+            if setup.install_docker(args.name):
+                print(f"✅ Docker installed successfully on {args.name}")
+            else:
+                print(f"❌ Failed to install Docker on {args.name}")
+                return 1
+
+        elif args.command == 'init-swarm':
+            network = getattr(args, 'network', 'livchat_network')
+            print(f"🐝 Initializing Docker Swarm on {args.name}...")
+            if setup.init_swarm(args.name, network):
+                print(f"✅ Docker Swarm initialized successfully")
+                print(f"   Network: {network}")
+            else:
+                print(f"❌ Failed to initialize Docker Swarm")
+                return 1
+
+        elif args.command == 'deploy-traefik':
+            ssl_email = getattr(args, 'ssl_email', None)
+            print(f"🔄 Deploying Traefik on {args.name}...")
+            if setup.deploy_traefik(args.name, ssl_email):
+                print(f"✅ Traefik deployed successfully")
+                if ssl_email:
+                    print(f"   SSL Email: {ssl_email}")
+            else:
+                print(f"❌ Failed to deploy Traefik")
                 return 1
 
         return 0

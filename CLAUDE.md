@@ -170,6 +170,48 @@ class DigitalOceanProvider(ProviderInterface):
     # [PLANEJADO] - Estrutura pronta para expansão
 ```
 
+#### **SSH Manager** [DECIDIDO]
+```python
+class SSHManager:
+    """Gerenciamento de chaves SSH e autenticação"""
+
+    responsibilities = [
+        "Gerar pares de chaves Ed25519/RSA",
+        "Armazenar chaves seguramente no Vault",
+        "Gerenciar chaves no provider (Hetzner/DO)",
+        "Manter permissões corretas (600)",
+        "Rotação automática de chaves"
+    ]
+```
+
+#### **Ansible Runner** [DECIDIDO]
+```python
+class AnsibleRunner:
+    """Execução de playbooks Ansible via Python API"""
+
+    responsibilities = [
+        "Executar playbooks via ansible-runner",
+        "Gerar inventory dinâmico",
+        "Executar comandos ad-hoc",
+        "Coletar logs e resultados",
+        "Gerenciar variáveis e secrets"
+    ]
+```
+
+#### **Server Setup** [DECIDIDO]
+```python
+class ServerSetup:
+    """Orquestração do setup completo de servidores"""
+
+    responsibilities = [
+        "Coordenar setup inicial (update, timezone, etc)",
+        "Instalar Docker e iniciar Swarm",
+        "Deploy de infraestrutura base (Traefik, Portainer)",
+        "Verificar health checks",
+        "Rollback em caso de falha"
+    ]
+```
+
 #### **Dependency Resolver** [DECIDIDO - NOVO]
 ```python
 class DependencyResolver:
@@ -240,11 +282,16 @@ Core Orchestrator
     │   ├── ConfigStore (YAML)
     │   ├── StateStore (JSON)
     │   └── SecretsStore (Vault)
+    ├── SSH Manager
+    │   └── Storage Manager (para vault)
     ├── Dependency Resolver (parte do orchestrator.py)
-    ├── Provider Module
-    │   └── Connection Manager (SSH/API)
+    ├── Server Setup
+    │   └── Ansible Runner
     ├── Ansible Runner
-    │   └── Connection Manager
+    │   └── SSH Manager (para conexão)
+    ├── Provider Module
+    │   ├── Cloud API Manager
+    │   └── SSH Manager (para adicionar keys)
     ├── Integrations
     │   ├── Portainer API
     │   └── Cloudflare API
@@ -367,6 +414,9 @@ LivChatSetup/
 │   ├── __init__.py          # Package exports only
 │   ├── orchestrator.py      # Core orchestration + dependency resolution
 │   ├── storage.py           # Unified config + state + secrets management
+│   ├── ssh_manager.py      # SSH key management
+│   ├── ansible_runner.py   # Ansible Python API wrapper
+│   ├── server_setup.py     # Server setup orchestration
 │   ├── cli.py              # CLI entry point
 │   ├── providers/          # Cloud provider implementations
 │   │   ├── __init__.py     # Base interface
@@ -392,12 +442,19 @@ LivChatSetup/
 │           ├── n8n.yaml
 │           └── chatwoot.yaml
 │
+├── templates/              # Jinja2 templates
+│   ├── traefik-stack.j2   # Traefik stack template
+│   └── portainer-stack.j2  # Portainer stack template
+│
 ├── ansible/                # Ansible automation
 │   ├── playbooks/
-│   │   ├── base-setup.yml
-│   │   └── app-deploy.yml
+│   │   ├── base-setup.yml     # System preparation
+│   │   ├── docker-install.yml # Docker installation
+│   │   ├── swarm-init.yml     # Swarm initialization
+│   │   └── app-deploy.yml     # Generic app deployment
 │   ├── roles/
 │   ├── inventory/
+│   │   └── dynamic.py         # Dynamic inventory script
 │   └── group_vars/
 │
 ├── mcp-server/            # MCP Server (TypeScript)
@@ -429,7 +486,8 @@ LivChatSetup/
 ├── .livchat/             # User config directory (in $HOME)
 │   ├── config.yaml       # User configuration
 │   ├── state.json        # Application state
-│   └── credentials.vault # Encrypted secrets
+│   ├── credentials.vault # Encrypted secrets
+│   └── ssh_keys/         # SSH keys directory
 │
 ├── pyproject.toml        # Python project configuration
 ├── requirements.txt      # Python dependencies
@@ -565,16 +623,16 @@ config = {
 
 ### Phase 1: Core & Base [Weeks 1-2]
 - [x] Design document
-- [ ] Project structure
-- [ ] Core orchestrator
-- [ ] State manager
+- [x] Project structure
+- [x] Core orchestrator
+- [x] State manager
 - [ ] Basic API
 
 ### Phase 2: Provider & Apps [Weeks 3-4]
-- [ ] Hetzner provider
-- [ ] Ansible runner
-- [ ] Dependency resolver
-- [ ] Basic apps (postgres, redis)
+- [x] Hetzner provider
+- [⏳] Ansible runner (Em desenvolvimento - Plan-02)
+- [x] Dependency resolver (Básico implementado)
+- [⏳] Basic apps (postgres, redis) (Em desenvolvimento - Plan-02)
 
 ### Phase 3: Integrations [Week 5]
 - [ ] Portainer API

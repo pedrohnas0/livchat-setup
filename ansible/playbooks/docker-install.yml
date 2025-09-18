@@ -1,0 +1,149 @@
+---
+# Docker Installation Playbook for LivChat
+# Based on SetupOrion docker installation flow
+
+- name: Install Docker and Docker Compose
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    docker_compose_version: "v2.24.0"
+    docker_users:
+      - "{{ ansible_user | default('root') }}"
+
+  tasks:
+    - name: Remove old Docker packages if present
+      apt:
+        name:
+          - docker
+          - docker-engine
+          - docker.io
+          - containerd
+          - runc
+        state: absent
+      ignore_errors: yes
+
+    - name: Install dependencies for Docker
+      apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+          - software-properties-common
+        state: present
+        update_cache: yes
+
+    - name: Create directory for Docker keyrings
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Download Docker GPG key
+      get_url:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        dest: /etc/apt/keyrings/docker.asc
+        mode: '0644'
+      register: docker_gpg
+      retries: 3
+      delay: 5
+      until: docker_gpg is succeeded
+
+    - name: Get Ubuntu codename
+      command: lsb_release -cs
+      register: ubuntu_codename
+      changed_when: false
+
+    - name: Add Docker repository
+      apt_repository:
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ubuntu_codename.stdout }} stable"
+        state: present
+        filename: docker
+        update_cache: yes
+
+    - name: Install Docker packages
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+      register: docker_install
+      retries: 3
+      delay: 5
+      until: docker_install is succeeded
+
+    - name: Ensure Docker service is started and enabled
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+        daemon_reload: yes
+
+    - name: Ensure containerd service is started and enabled
+      systemd:
+        name: containerd
+        state: started
+        enabled: yes
+
+    - name: Add users to docker group
+      user:
+        name: "{{ item }}"
+        groups: docker
+        append: yes
+      loop: "{{ docker_users }}"
+      when: item != "root"
+
+    - name: Configure Docker daemon
+      copy:
+        content: |
+          {
+            "log-driver": "json-file",
+            "log-opts": {
+              "max-size": "10m",
+              "max-file": "3"
+            },
+            "storage-driver": "overlay2",
+            "userland-proxy": false
+          }
+        dest: /etc/docker/daemon.json
+        mode: '0644'
+      notify: restart docker
+
+    - name: Verify Docker installation
+      command: docker --version
+      register: docker_version
+      changed_when: false
+
+    - name: Verify Docker Compose installation
+      command: docker compose version
+      register: compose_version
+      changed_when: false
+
+    - name: Run Docker hello-world test
+      command: docker run --rm hello-world
+      register: hello_world
+      changed_when: false
+      retries: 3
+      delay: 5
+      until: hello_world is succeeded
+
+    - name: Display Docker installation info
+      debug:
+        msg: |
+          ✅ Docker installed successfully!
+          Docker Version: {{ docker_version.stdout }}
+          Compose Version: {{ compose_version.stdout }}
+
+  handlers:
+    - name: restart docker
+      systemd:
+        name: docker
+        state: restarted
+        daemon_reload: yes

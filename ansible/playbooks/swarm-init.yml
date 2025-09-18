@@ -1,0 +1,97 @@
+---
+# Docker Swarm Initialization Playbook for LivChat
+# Based on SetupOrion swarm initialization
+
+- name: Initialize Docker Swarm
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  vars:
+    network_name: "{{ swarm_network | default('livchat_network') }}"
+    advertise_addr: "{{ ansible_default_ipv4.address }}"
+
+  tasks:
+    - name: Check if Docker is installed
+      command: docker --version
+      register: docker_check
+      changed_when: false
+      failed_when: docker_check.rc != 0
+
+    - name: Check if Swarm is already initialized
+      command: docker info --format '{% raw %}{{.Swarm.LocalNodeState}}{% endraw %}'
+      register: swarm_state
+      changed_when: false
+
+    - name: Initialize Docker Swarm
+      command: docker swarm init --advertise-addr {{ advertise_addr }}
+      when: swarm_state.stdout != "active"
+      register: swarm_init
+      ignore_errors: yes
+
+    - name: Get Swarm join token for workers
+      command: docker swarm join-token -q worker
+      register: worker_token
+      changed_when: false
+      when: swarm_state.stdout == "active" or swarm_init.changed
+
+    - name: Get Swarm join token for managers
+      command: docker swarm join-token -q manager
+      register: manager_token
+      changed_when: false
+      when: swarm_state.stdout == "active" or swarm_init.changed
+
+    - name: Create overlay network
+      command: docker network create --driver overlay --attachable "{{ network_name }}"
+      register: network_creation
+      failed_when:
+        - network_creation.rc != 0
+        - "'already exists' not in network_creation.stderr"
+      changed_when: network_creation.rc == 0
+
+    - name: Create required volumes
+      command: docker volume create "{{ item }}"
+      loop:
+        - volume_swarm_shared
+        - volume_swarm_certificates
+        - portainer_data
+      register: volume_creation
+      failed_when:
+        - volume_creation.rc != 0
+        - "'already exists' not in volume_creation.stderr"
+      changed_when: volume_creation.rc == 0
+
+    - name: List Docker networks
+      command: docker network ls
+      register: docker_networks
+      changed_when: false
+
+    - name: Display Swarm initialization info
+      debug:
+        msg: |
+          ✅ Docker Swarm initialized successfully!
+          Node State: {{ swarm_state.stdout }}
+          Advertise Address: {{ advertise_addr }}
+          Network Created: {{ network_name }}
+
+          Worker Join Token: {{ worker_token.stdout | default('N/A') }}
+          Manager Join Token: {{ manager_token.stdout | default('N/A') }}
+
+          To join a worker node:
+          docker swarm join --token {{ worker_token.stdout | default('TOKEN') }} {{ advertise_addr }}:2377
+
+          To join a manager node:
+          docker swarm join --token {{ manager_token.stdout | default('TOKEN') }} {{ advertise_addr }}:2377
+
+    - name: Save Swarm tokens to file
+      copy:
+        content: |
+          # Docker Swarm Tokens
+          # Generated: {{ ansible_date_time.iso8601 }}
+
+          WORKER_TOKEN={{ worker_token.stdout | default('') }}
+          MANAGER_TOKEN={{ manager_token.stdout | default('') }}
+          ADVERTISE_ADDR={{ advertise_addr }}
+        dest: /root/.swarm_tokens
+        mode: '0600'
+      when: worker_token is defined or manager_token is defined

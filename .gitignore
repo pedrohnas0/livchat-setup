@@ -45,8 +45,20 @@ htmlcov/
 *.vault
 .vault_password
 
+# Ansible collections (installed locally)
+ansible/collections/
+ansible_collections/
+*.ansible_collection
+
 # SetupOrion reference (don't commit)
 SetupOrion/
 
 # Logs
 *.log
+test_output.log
+final_test_output.log
+
+# Temporary test files
+test_*.py
+debug_*.py
+!tests/**/*.py
