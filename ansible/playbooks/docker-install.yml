@@ -1,6 +1,6 @@
 ---
 # Docker Installation Playbook for LivChat
-# Based on SetupOrion docker installation flow
+# Multi-distribution support (Ubuntu, Debian, CentOS, Rocky, Alma, Fedora)
 
 - name: Install Docker and Docker Compose
   hosts: all
@@ -12,8 +12,34 @@
     docker_users:
       - "{{ ansible_user | default('root') }}"
 
+    # OS-specific configuration
+    docker_repo_base_url: "https://download.docker.com/linux"
+
+    # Map ansible_distribution to Docker repo names
+    docker_distro_map:
+      Ubuntu: "ubuntu"
+      Debian: "debian"
+      CentOS: "centos"
+      Rocky: "centos"  # Rocky uses CentOS repos
+      AlmaLinux: "centos"  # Alma uses CentOS repos
+      Fedora: "fedora"
+      openSUSE: "opensuse"  # For future support
+
+    # Get the correct distro name for Docker repos
+    docker_distro: "{{ docker_distro_map[ansible_distribution] | default(ansible_distribution | lower) }}"
+
   tasks:
-    - name: Remove old Docker packages if present
+    - name: Debug - Show detected OS
+      debug:
+        msg: |
+          Distribution: {{ ansible_distribution }}
+          Version: {{ ansible_distribution_version }}
+          Release: {{ ansible_distribution_release }}
+          OS Family: {{ ansible_os_family }}
+          Docker Distro: {{ docker_distro }}
+
+    # Debian/Ubuntu specific tasks
+    - name: Remove old Docker packages (Debian/Ubuntu)
       apt:
         name:
           - docker
@@ -23,8 +49,27 @@
           - runc
         state: absent
       ignore_errors: yes
+      when: ansible_os_family == "Debian"
 
-    - name: Install dependencies for Docker
+    # RedHat/CentOS/Rocky/Alma specific tasks
+    - name: Remove old Docker packages (RedHat-based)
+      yum:
+        name:
+          - docker
+          - docker-client
+          - docker-client-latest
+          - docker-common
+          - docker-latest
+          - docker-latest-logrotate
+          - docker-logrotate
+          - docker-engine
+          - podman
+          - buildah
+        state: absent
+      ignore_errors: yes
+      when: ansible_os_family == "RedHat"
+
+    - name: Install dependencies for Docker (Debian/Ubuntu)
       apt:
         name:
           - apt-transport-https
@@ -35,36 +80,72 @@
           - software-properties-common
         state: present
         update_cache: yes
+      when: ansible_os_family == "Debian"
 
-    - name: Create directory for Docker keyrings
+    - name: Install dependencies for Docker (RedHat-based)
+      yum:
+        name:
+          - yum-utils
+          - device-mapper-persistent-data
+          - lvm2
+          - ca-certificates
+          - curl
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    # Debian/Ubuntu repository setup
+    - name: Create directory for Docker keyrings (Debian/Ubuntu)
       file:
         path: /etc/apt/keyrings
         state: directory
         mode: '0755'
+      when: ansible_os_family == "Debian"
 
-    - name: Download Docker GPG key
+    - name: Download Docker GPG key (Debian/Ubuntu)
       get_url:
-        url: https://download.docker.com/linux/ubuntu/gpg
+        url: "{{ docker_repo_base_url }}/{{ docker_distro }}/gpg"
         dest: /etc/apt/keyrings/docker.asc
         mode: '0644'
       register: docker_gpg
       retries: 3
       delay: 5
       until: docker_gpg is succeeded
+      when: ansible_os_family == "Debian"
 
-    - name: Get Ubuntu codename
+    - name: Get distribution codename (Debian/Ubuntu)
       command: lsb_release -cs
-      register: ubuntu_codename
+      register: distro_codename
       changed_when: false
+      when: ansible_os_family == "Debian"
 
-    - name: Add Docker repository
+    - name: Add Docker repository (Debian/Ubuntu)
       apt_repository:
-        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {{ ubuntu_codename.stdout }} stable"
+        repo: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] {{ docker_repo_base_url }}/{{ docker_distro }} {{ distro_codename.stdout }} stable"
         state: present
         filename: docker
         update_cache: yes
+      when: ansible_os_family == "Debian"
 
-    - name: Install Docker packages
+    # RedHat/CentOS/Rocky/Alma repository setup
+    - name: Add Docker repository (RedHat-based)
+      yum_repository:
+        name: docker-ce
+        description: Docker CE Repository
+        baseurl: "{{ docker_repo_base_url }}/{{ docker_distro }}/$releasever/$basearch/stable"
+        gpgkey: "{{ docker_repo_base_url }}/{{ docker_distro }}/gpg"
+        gpgcheck: yes
+        enabled: yes
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    # Fedora repository setup (special case)
+    - name: Add Docker repository (Fedora)
+      command: |
+        dnf config-manager --add-repo {{ docker_repo_base_url }}/fedora/docker-ce.repo
+      when: ansible_distribution == "Fedora"
+      changed_when: true
+
+    - name: Install Docker packages (Debian/Ubuntu)
       apt:
         name:
           - docker-ce
@@ -74,10 +155,43 @@
           - docker-compose-plugin
         state: present
         update_cache: yes
-      register: docker_install
+      register: docker_install_deb
       retries: 3
       delay: 5
-      until: docker_install is succeeded
+      until: docker_install_deb is succeeded
+      when: ansible_os_family == "Debian"
+
+    - name: Install Docker packages (RedHat-based)
+      yum:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+      register: docker_install_rh
+      retries: 3
+      delay: 5
+      until: docker_install_rh is succeeded
+      when: ansible_os_family == "RedHat" and ansible_distribution != "Fedora"
+
+    - name: Install Docker packages (Fedora)
+      dnf:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: yes
+      register: docker_install_fed
+      retries: 3
+      delay: 5
+      until: docker_install_fed is succeeded
+      when: ansible_distribution == "Fedora"
 
     - name: Ensure Docker service is started and enabled
       systemd:
@@ -138,6 +252,7 @@
       debug:
         msg: |
           ✅ Docker installed successfully!
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
           Docker Version: {{ docker_version.stdout }}
           Compose Version: {{ compose_version.stdout }}
 

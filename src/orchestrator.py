@@ -209,7 +209,8 @@ class Orchestrator:
 
         logger.info(f"Provider {provider_name} configured successfully")
 
-    def create_server(self, name: str, server_type: str, region: str) -> Dict[str, Any]:
+    def create_server(self, name: str, server_type: str, region: str,
+                     image: str = "ubuntu-22.04") -> Dict[str, Any]:
         """
         Create a new server
 
@@ -217,6 +218,7 @@ class Orchestrator:
             name: Server name
             server_type: Server type (e.g., 'cx21')
             region: Region/location (e.g., 'nbg1')
+            image: OS image (default: 'ubuntu-22.04')
 
         Returns:
             Server information dictionary
@@ -232,7 +234,7 @@ class Orchestrator:
             else:
                 raise RuntimeError("No provider configured. Run configure_provider first.")
 
-        logger.info(f"Creating server: {name} ({server_type} in {region})")
+        logger.info(f"Creating server: {name} ({server_type} in {region} with {image})")
 
         # Generate SSH key for the server BEFORE creating it
         key_name = f"{name}_key"
@@ -265,7 +267,8 @@ class Orchestrator:
             raise RuntimeError("Cannot add SSH key without Hetzner token")
 
         # Create server with SSH key
-        server = self.provider.create_server(name, server_type, region, ssh_keys=[key_name])
+        server = self.provider.create_server(name, server_type, region,
+                                            image=image, ssh_keys=[key_name])
 
         # Add SSH key info to server data
         server["ssh_key"] = key_name

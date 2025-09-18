@@ -400,13 +400,15 @@ class TestRealInfrastructure:
         print("TESTE COM INFRAESTRUTURA REAL - HETZNER")
         print("="*70)
         print(f"Servidor: {server_name}")
-        print(f"Tipo: cpx11 (2 vCPU, 2GB RAM, 40GB SSD)")
-        print(f"Região: nbg1 (Nuremberg)")
-        print(f"Custo estimado: €0.007/hora (~€5/mês)")
+        print(f"Tipo: ccx23 (4 vCPU AMD, 16GB RAM, 80GB SSD)")
+        print(f"Sistema: Debian 12")
+        print(f"Região: ash (Ashburn, VA)")
+        print(f"Custo estimado: €0.026/hora (~€19/mês)")
         print("="*70)
 
-        delete_on_success = os.environ.get("DELETE_SERVER", "true").lower() == "true"
-        delete_on_failure = os.environ.get("DELETE_ON_FAILURE", "false").lower() == "true"
+        # Always delete server to avoid costs
+        delete_on_success = True
+        delete_on_failure = True
 
         with tempfile.TemporaryDirectory() as tmpdir:
             orchestrator = Orchestrator(Path(tmpdir))
@@ -421,8 +423,9 @@ class TestRealInfrastructure:
                 print(f"\n1. Criando servidor real na Hetzner...")
                 server = orchestrator.create_server(
                     server_name,
-                    "cpx11",  # Smallest available instance (cx11 is deprecated)
-                    "nbg1"
+                    "ccx23",  # 4 vCPU AMD, 16GB RAM, 80GB NVMe
+                    "ash",    # Ashburn, VA
+                    "debian-12"
                 )
 
                 print(f"   ✓ Servidor criado:")
