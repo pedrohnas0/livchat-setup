@@ -1,0 +1,63 @@
+name: postgres
+category: database
+version: "14-alpine"
+description: PostgreSQL relational database
+
+ports:
+  - "5432:5432"
+
+volumes:
+  - postgres_data:/var/lib/postgresql/data
+  - postgres_backups:/backups
+
+environment:
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: "{{ vault.postgres_password }}"
+  POSTGRES_DB: postgres
+  PGDATA: /var/lib/postgresql/data/pgdata
+
+deploy:
+  mode: replicated
+  replicas: 1
+  placement:
+    constraints:
+      - node.role == manager
+  resources:
+    limits:
+      memory: 2G
+    reservations:
+      memory: 512M
+
+health_check:
+  test: ["CMD-SHELL", "pg_isready -U postgres"]
+  interval: 30s
+  timeout: 10s
+  retries: 5
+  start_period: 30s
+
+dependencies: []
+
+dns_prefix: pg
+
+labels:
+  - "com.livchat.app=postgres"
+  - "com.livchat.category=database"
+
+network: livchat_network
+
+backup:
+  enabled: true
+  schedule: "0 2 * * *"  # Daily at 2 AM
+  retention: 7  # Keep 7 days of backups
+  command: |
+    pg_dumpall -U postgres > /backups/postgres_$(date +%Y%m%d_%H%M%S).sql
+
+post_deploy:
+  - action: wait_health
+    timeout: 60
+  - action: create_databases
+    databases:
+      - n8n_queue
+      - chatwoot_production
+      - grafana
+      - directus

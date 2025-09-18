@@ -1,0 +1,59 @@
+name: portainer
+category: infrastructure
+version: "2.19.4"
+description: Container management platform for Docker/Swarm
+
+ports:
+  - "9443:9443"  # HTTPS UI
+  - "9000:9000"  # HTTP UI (optional)
+  - "8000:8000"  # Edge agent
+
+volumes:
+  - portainer_data:/data
+  - /var/run/docker.sock:/var/run/docker.sock:ro
+
+environment:
+  - ADMIN_PASSWORD={{ vault.portainer_password }}
+
+deploy:
+  mode: replicated
+  replicas: 1
+  placement:
+    constraints:
+      - node.role == manager
+  restart_policy:
+    condition: on-failure
+    delay: 5s
+    max_attempts: 3
+
+health_check:
+  endpoint: https://localhost:9443
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 40s
+
+dependencies: []
+
+dns_prefix: ptn
+
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.portainer.rule=Host(`ptn.{{ domain }}`)"
+  - "traefik.http.routers.portainer.entrypoints=websecure"
+  - "traefik.http.routers.portainer.tls.certresolver=letsencrypt"
+  - "traefik.http.services.portainer.loadbalancer.server.port=9443"
+  - "traefik.http.services.portainer.loadbalancer.server.scheme=https"
+
+stack_name: portainer
+network: livchat_network
+
+post_deploy:
+  - action: wait_health
+    timeout: 120
+  - action: init_admin
+    endpoint: "/api/users/admin/init"
+    method: POST
+    payload:
+      Username: "{{ admin_email }}"
+      Password: "{{ vault.portainer_password }}"

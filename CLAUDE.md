@@ -672,6 +672,25 @@ config = {
   pytest --cov=src    # Verificar cobertura
   ```
 
+### 🚨 Padrões de Mock para Testes Rápidos
+```python
+# PADRÃO CORRETO - Mock no nível do método
+class TestMyComponent:
+    @pytest.fixture
+    def app_deployer(self):
+        deployer = AppDeployer(...)
+        # Mock métodos que fariam I/O
+        deployer.verify_health = AsyncMock(return_value={"healthy": True})
+        deployer.check_health = AsyncMock(return_value={"status": "ok"})
+        return deployer
+
+# PADRÃO ERRADO - Mock de bibliotecas HTTP
+@patch('httpx.AsyncClient')  # ❌ NÃO FAZER
+@patch('requests.get')       # ❌ NÃO FAZER
+
+# REGRA DE OURO: Se o teste demora > 3 segundos, está fazendo I/O real!
+```
+
 ### Planning Process
 - **Documentar planos em `plans/`** antes de implementações grandes
 - **Revisar e atualizar** planos conforme desenvolvimento evolui
@@ -708,32 +727,80 @@ Todos os planos de desenvolvimento devem seguir esta estrutura:
 
 ## 12. Testing Strategy
 
-### Unit Tests [IMPLEMENTADO]
+### 🚨 PADRÕES OBRIGATÓRIOS DE TESTES
+
+#### **Unit Tests** [IMPLEMENTADO]
 ```python
 # pytest + pytest-asyncio
-tests/
-├── test_providers/
-├── test_dependencies/
-├── test_state/
-└── test_api/
+tests/unit/
+
+# REGRAS FUNDAMENTAIS:
+# 1. SEMPRE usar mocks - NUNCA fazer chamadas reais (HTTP, filesystem, etc)
+# 2. Mock direto nos métodos do cliente, não no httpx/requests
+# 3. Usar AsyncMock para métodos async
+# 4. Testes devem rodar em < 3 segundos TOTAL
+# 5. Usar fixtures para criar mocks reutilizáveis
+
+# EXEMPLO CORRETO:
+@pytest.fixture
+def mock_client():
+    client = PortainerClient()
+    client._request = AsyncMock(return_value={"jwt": "token"})
+    client.verify_health = AsyncMock(return_value={"healthy": True})
+    return client
+
+# EXEMPLO ERRADO:
+@patch('httpx.AsyncClient')  # NÃO fazer isso em unit tests!
+async def test_something(mock_httpx):
+    pass  # Isso causa timeouts e testes lentos
 ```
 
 ### Integration Tests [A DESENVOLVER]
 ```python
-# Scenarios
-- Deploy N8N com dependências
-- Multi-server deployment
+# tests/integration/
+
+# REGRAS:
+# 1. Podem usar recursos LOCAIS (filesystem temporário, SQLite em memória)
+# 2. NÃO devem fazer chamadas para APIs externas
+# 3. Podem testar interação entre múltiplos componentes
+# 4. Usar temp directories para isolamento
+
+# Scenarios:
+- Deploy N8N com dependências (mocked)
+- Multi-server deployment (local state)
 - Rollback após falha
-- Configuração via API
+- Configuração via API (local)
 ```
 
 ### E2E Tests [A DESENVOLVER]
 ```python
-# Via MCP
-- Criar servidor via Claude
-- Instalar stack completa
-- Verificar funcionamento
+# tests/e2e/
+
+# REGRAS:
+# 1. APENAS aqui podem fazer chamadas REAIS
+# 2. Controlado por variável de ambiente: LIVCHAT_E2E_REAL=true
+# 3. Sempre ter fallback para mocks quando variável não definida
+# 4. Cleanup obrigatório após testes
+
+# EXEMPLO:
+@pytest.fixture
+def use_real_infrastructure():
+    return os.environ.get("LIVCHAT_E2E_REAL", "false") == "true"
+
+def test_real_server_creation(use_real_infrastructure):
+    if use_real_infrastructure:
+        # Chamadas reais para Hetzner, Cloudflare, etc
+        server = create_real_server()
+    else:
+        # Use mocks
+        server = mock_server()
 ```
+
+### 📊 Métricas de Performance dos Testes
+- **Unit tests**: < 3 segundos total
+- **Integration tests**: < 10 segundos total
+- **E2E tests**: < 5 minutos (quando reais)
+- **Cobertura mínima**: 80% para componentes críticos
 
 ## 12. Security Considerations
 

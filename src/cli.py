@@ -2,6 +2,7 @@
 
 import sys
 import argparse
+import asyncio
 import logging
 from pathlib import Path
 
@@ -75,6 +76,43 @@ def main():
     portainer_parser.add_argument('name', help='Server name')
     portainer_parser.add_argument('--admin-password', help='Admin password (default: admin123!@#)')
     portainer_parser.add_argument('--https-port', type=int, default=9443, help='HTTPS port (default: 9443)')
+
+    # Configure Cloudflare command
+    cloudflare_parser = subparsers.add_parser('configure-cloudflare', help='Configure Cloudflare API')
+    cloudflare_parser.add_argument('email', help='Cloudflare account email')
+    cloudflare_parser.add_argument('api_key', help='Cloudflare Global API Key')
+
+    # Setup DNS command
+    dns_parser = subparsers.add_parser('setup-dns', help='Setup DNS for a server')
+    dns_parser.add_argument('server', help='Server name')
+    dns_parser.add_argument('zone', help='Cloudflare zone name (e.g., livchat.ai)')
+    dns_parser.add_argument('--subdomain', help='Optional subdomain (e.g., lab, dev)')
+
+    # Add app DNS command
+    app_dns_parser = subparsers.add_parser('add-app-dns', help='Add DNS for an application')
+    app_dns_parser.add_argument('app', help='Application name (e.g., chatwoot, n8n)')
+    app_dns_parser.add_argument('zone', help='Cloudflare zone name')
+    app_dns_parser.add_argument('--subdomain', help='Optional subdomain')
+
+    # List available apps command
+    list_apps_parser = subparsers.add_parser('list-apps', help='List available applications')
+    list_apps_parser.add_argument('--category', help='Filter by category (e.g., database, automation)')
+
+    # Deploy app command
+    deploy_app_parser = subparsers.add_parser('deploy-app', help='Deploy an application to a server')
+    deploy_app_parser.add_argument('server', help='Server name')
+    deploy_app_parser.add_argument('app', help='Application name (e.g., postgres, n8n, chatwoot)')
+    deploy_app_parser.add_argument('--config', help='JSON configuration for the app')
+
+    # Delete app command
+    delete_app_parser = subparsers.add_parser('delete-app', help='Delete an application from a server')
+    delete_app_parser.add_argument('server', help='Server name')
+    delete_app_parser.add_argument('app', help='Application name')
+
+    # App status command
+    app_status_parser = subparsers.add_parser('app-status', help='Check application status')
+    app_status_parser.add_argument('server', help='Server name')
+    app_status_parser.add_argument('--app', help='Specific app name (optional)')
 
     # Parse arguments
     args = parser.parse_args()
@@ -204,6 +242,132 @@ def main():
             else:
                 print(f"❌ Failed to deploy Portainer")
                 return 1
+
+        elif args.command == 'configure-cloudflare':
+            print(f"☁️ Configuring Cloudflare API...")
+            if setup.configure_cloudflare(args.email, args.api_key):
+                print(f"✅ Cloudflare configured successfully")
+                print(f"   Email: {args.email}")
+            else:
+                print(f"❌ Failed to configure Cloudflare")
+                return 1
+
+        elif args.command == 'setup-dns':
+            server = setup.get_server(args.server)
+            if not server:
+                print(f"❌ Server {args.server} not found")
+                return 1
+
+            print(f"🌐 Setting up DNS for server {args.server}...")
+
+            # Run async function
+            result = asyncio.run(setup.setup_dns_for_server(
+                args.server, args.zone, args.subdomain
+            ))
+
+            if result['success']:
+                print(f"✅ DNS configured successfully")
+                print(f"   Record: {result.get('record_name', 'N/A')}")
+                print(f"   IP: {server['ip']}")
+            else:
+                print(f"❌ Failed to setup DNS: {result.get('error', 'Unknown error')}")
+                return 1
+
+        elif args.command == 'add-app-dns':
+            print(f"🌐 Adding DNS for application {args.app}...")
+
+            # Run async function
+            result = asyncio.run(setup.add_app_dns(
+                args.app, args.zone, args.subdomain
+            ))
+
+            if result['success']:
+                print(f"✅ DNS configured for {args.app}")
+                print(f"   Records created: {result.get('records_created', 0)}")
+
+                # Show details if available
+                if 'details' in result:
+                    for detail in result['details']:
+                        if detail.get('success'):
+                            print(f"   • {detail.get('record_name', 'N/A')}")
+            else:
+                print(f"❌ Failed to add app DNS: {result.get('error', 'Unknown error')}")
+                return 1
+
+        elif args.command == 'list-apps':
+            # List available applications
+            category = getattr(args, 'category', None)
+            apps = setup.list_available_apps(category=category)
+
+            if apps:
+                print(f"📦 Available Applications{f' ({category})' if category else ''}:")
+                for app in apps:
+                    print(f"  • {app['name']} ({app['category']}) - {app['description']}")
+                    if app.get('has_dependencies'):
+                        print(f"    Has dependencies: Yes")
+            else:
+                print(f"No applications found{f' in category {category}' if category else ''}")
+
+        elif args.command == 'deploy-app':
+            print(f"🚀 Deploying {args.app} to server {args.server}...")
+
+            # Parse config if provided
+            config = {}
+            if hasattr(args, 'config') and args.config:
+                try:
+                    import json
+                    config = json.loads(args.config)
+                except Exception as e:
+                    print(f"❌ Invalid config JSON: {e}")
+                    return 1
+
+            # Deploy the application
+            result = asyncio.run(setup.deploy_app(args.server, args.app, config))
+
+            if result.get('success'):
+                print(f"✅ {args.app} deployed successfully on {args.server}")
+                if result.get('dns_configured'):
+                    print(f"   DNS configured: Yes")
+                if result.get('stack_id'):
+                    print(f"   Stack ID: {result['stack_id']}")
+                if result.get('dependencies_resolved'):
+                    print(f"   Dependencies: {', '.join(result['dependencies_resolved'])}")
+            else:
+                print(f"❌ Failed to deploy {args.app}: {result.get('error', 'Unknown error')}")
+                return 1
+
+        elif args.command == 'delete-app':
+            print(f"🗑️ Deleting {args.app} from server {args.server}...")
+
+            # Confirm deletion
+            response = input(f"Are you sure you want to delete {args.app}? (y/N): ")
+            if response.lower() != 'y':
+                print("Deletion cancelled")
+                return 0
+
+            # Delete the application
+            result = asyncio.run(setup.delete_app(args.server, args.app))
+
+            if result.get('success'):
+                print(f"✅ {args.app} deleted successfully from {args.server}")
+            else:
+                print(f"❌ Failed to delete {args.app}: {result.get('error', 'Unknown error')}")
+                return 1
+
+        elif args.command == 'app-status':
+            server = setup.get_server(args.server)
+            if not server:
+                print(f"❌ Server {args.server} not found")
+                return 1
+
+            apps = server.get('applications', [])
+            if not apps:
+                print(f"No applications installed on {args.server}")
+            else:
+                print(f"📊 Applications on {args.server}:")
+                for app in apps:
+                    if not args.app or app == args.app:
+                        print(f"  • {app}: Running")  # TODO: Get actual status from Portainer
 
         return 0
 

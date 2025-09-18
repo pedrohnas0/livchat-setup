@@ -11,6 +11,10 @@ try:
     from .ansible_executor import AnsibleRunner
     from .server_setup import ServerSetup
     from .security_utils import CredentialsManager, PasswordGenerator
+    from .integrations.cloudflare import CloudflareClient
+    from .integrations.portainer import PortainerClient
+    from .app_registry import AppRegistry
+    from .app_deployer import AppDeployer
 except ImportError:
     # For direct execution
     from storage import StorageManager
@@ -19,6 +23,10 @@ except ImportError:
     from ansible_executor import AnsibleRunner
     from server_setup import ServerSetup
     from security_utils import CredentialsManager, PasswordGenerator
+    from integrations.cloudflare import CloudflareClient
+    from integrations.portainer import PortainerClient
+    from app_registry import AppRegistry
+    from app_deployer import AppDeployer
 
 logger = logging.getLogger(__name__)
 
@@ -171,12 +179,32 @@ class Orchestrator:
         self.ansible_runner = AnsibleRunner(self.ssh_manager)
         self.server_setup = ServerSetup(self.ansible_runner)
 
+        # Initialize integration clients
+        self.cloudflare = None  # Will be initialized with configure_cloudflare()
+        self.portainer = None   # Will be initialized per server
+
+        # Initialize app management components
+        self.app_registry = AppRegistry()
+        self.app_deployer = None  # Will be initialized when needed
+
+        # Load app definitions if available
+        apps_dir = Path(__file__).parent.parent / "apps" / "definitions"
+        if apps_dir.exists():
+            try:
+                self.app_registry.load_definitions(str(apps_dir))
+                logger.info(f"Loaded {len(self.app_registry.apps)} app definitions")
+            except Exception as e:
+                logger.warning(f"Could not load app definitions: {e}")
+
         # Auto-load existing data if available
         if self.config_dir.exists():
             try:
                 self.storage.config.load()
                 self.storage.state.load()
                 logger.info("Loaded existing configuration and state")
+
+                # Try to initialize Cloudflare if credentials exist
+                self._init_cloudflare_from_config()
             except Exception as e:
                 logger.debug(f"Could not load existing data: {e}")
 
@@ -211,6 +239,55 @@ class Orchestrator:
             raise ValueError(f"Unsupported provider: {provider_name}")
 
         logger.info(f"Provider {provider_name} configured successfully")
+
+    def _init_cloudflare_from_config(self) -> bool:
+        """
+        Initialize Cloudflare client from saved configuration
+
+        Returns:
+            True if initialized successfully
+        """
+        try:
+            email = self.storage.secrets.get_secret("cloudflare_email")
+            api_key = self.storage.secrets.get_secret("cloudflare_api_key")
+
+            if email and api_key:
+                self.cloudflare = CloudflareClient(email, api_key)
+                logger.info("Cloudflare client initialized from saved credentials")
+                return True
+        except Exception as e:
+            logger.debug(f"Could not initialize Cloudflare: {e}")
+
+        return False
+
+    def configure_cloudflare(self, email: str, api_key: str) -> bool:
+        """
+        Configure Cloudflare API credentials
+
+        Args:
+            email: Cloudflare account email
+            api_key: Global API Key from Cloudflare dashboard
+
+        Returns:
+            True if successful
+        """
+        logger.info(f"Configuring Cloudflare with email: {email}")
+
+        try:
+            # Test the credentials by initializing the client
+            self.cloudflare = CloudflareClient(email, api_key)
+
+            # Save credentials securely in vault
+            self.storage.secrets.set_secret("cloudflare_email", email)
+            self.storage.secrets.set_secret("cloudflare_api_key", api_key)
+
+            logger.info("Cloudflare configured successfully")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to configure Cloudflare: {e}")
+            self.cloudflare = None
+            return False
 
     def create_server(self, name: str, server_type: str, region: str,
                      image: str = "ubuntu-22.04") -> Dict[str, Any]:
@@ -281,6 +358,103 @@ class Orchestrator:
 
         logger.info(f"Server {name} created successfully: {server['ip']}")
         return server
+
+    async def setup_dns_for_server(self, server_name: str, zone_name: str,
+                                  subdomain: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Setup DNS records for a server (Portainer A record)
+
+        Args:
+            server_name: Name of the server
+            zone_name: Cloudflare zone name (e.g., "livchat.ai")
+            subdomain: Optional subdomain (e.g., "lab", "dev")
+
+        Returns:
+            Result dictionary with DNS setup status
+        """
+        if not self.cloudflare:
+            return {
+                "success": False,
+                "error": "Cloudflare not configured. Run configure_cloudflare first."
+            }
+
+        server = self.get_server(server_name)
+        if not server:
+            return {
+                "success": False,
+                "error": f"Server {server_name} not found"
+            }
+
+        try:
+            # Setup DNS A record for Portainer
+            result = await self.cloudflare.setup_server_dns(
+                server={"name": server_name, "ip": server["ip"]},
+                zone_name=zone_name,
+                subdomain=subdomain
+            )
+
+            if result["success"]:
+                # Save DNS info to state (only zone and subdomain)
+                dns_info = {
+                    "zone": zone_name,
+                    "subdomain": subdomain
+                }
+                server["dns"] = dns_info
+                self.storage.state.update_server(server_name, server)
+
+                logger.info(f"DNS configured for server {server_name}: {result['record_name']}")
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to setup DNS: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    async def add_app_dns(self, app_name: str, zone_name: str,
+                        subdomain: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Add DNS records for an application
+
+        Args:
+            app_name: Application name (e.g., "chatwoot", "n8n")
+            zone_name: Cloudflare zone name
+            subdomain: Optional subdomain
+
+        Returns:
+            Result dictionary with DNS setup status
+        """
+        if not self.cloudflare:
+            return {
+                "success": False,
+                "error": "Cloudflare not configured. Run configure_cloudflare first."
+            }
+
+        try:
+            # Use standard prefix mapping for the app
+            results = await self.cloudflare.add_app_with_standard_prefix(
+                app_name=app_name,
+                zone_name=zone_name,
+                subdomain=subdomain
+            )
+
+            # Return summary
+            success_count = sum(1 for r in results if r.get("success"))
+            return {
+                "success": success_count > 0,
+                "app": app_name,
+                "records_created": success_count,
+                "details": results
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to add app DNS: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
 
     def list_servers(self) -> Dict[str, Dict[str, Any]]:
         """List all managed servers"""
@@ -516,7 +690,7 @@ class Orchestrator:
 
     def deploy_portainer(self, server_name: str, config: Dict = None) -> bool:
         """
-        Deploy Portainer CE on a server
+        Deploy Portainer CE on a server with automatic admin initialization
 
         Args:
             server_name: Name of the server
@@ -544,7 +718,260 @@ class Orchestrator:
                 apps.append('portainer')
                 self.storage.state.update_server(server_name, {'applications': apps})
 
+            # Automatic Portainer initialization
+            logger.info("Initializing Portainer admin account...")
+
+            # Get server IP
+            server_ip = server.get("ip")
+
+            # Get or generate credentials
+            admin_email = self.storage.config.get("admin_email", "admin@localhost")
+            portainer_password = self.storage.secrets.get_secret(f"portainer_password_{server_name}")
+
+            if not portainer_password:
+                # Generate secure 64-character password
+                portainer_password = PasswordGenerator.generate_secure_password()
+                self.storage.secrets.set_secret(f"portainer_password_{server_name}", portainer_password)
+                logger.info(f"Generated secure password for Portainer admin")
+
+            # Create temporary Portainer client for initialization
+            portainer_client = PortainerClient(
+                url=f"https://{server_ip}:9443",
+                username=admin_email,
+                password=portainer_password
+            )
+
+            # Wait for Portainer to be ready
+            import asyncio
+            ready = asyncio.run(portainer_client.wait_for_ready(max_attempts=30, delay=10))
+
+            if ready:
+                # Initialize admin account
+                initialized = asyncio.run(portainer_client.initialize_admin())
+
+                if initialized:
+                    logger.info(f"✅ Portainer admin initialized successfully!")
+                    logger.info(f"   Access URL: https://{server_ip}:9443")
+                    logger.info(f"   Username: {admin_email}")
+                    logger.info(f"   Password stored in vault: portainer_password_{server_name}")
+                else:
+                    logger.warning("Portainer admin initialization returned false (may already be initialized)")
+            else:
+                logger.error("Portainer did not become ready within timeout period")
+                return False
+
         return result.success
+
+    def _init_portainer_for_server(self, server_name: str) -> bool:
+        """
+        Initialize Portainer client for a specific server
+
+        Args:
+            server_name: Name of the server
+
+        Returns:
+            True if initialized successfully
+        """
+        server = self.get_server(server_name)
+        if not server:
+            logger.error(f"Server {server_name} not found")
+            return False
+
+        # Get server IP
+        server_ip = server.get("ip")
+        if not server_ip:
+            logger.error(f"Server {server_name} has no IP address")
+            return False
+
+        # Get Portainer credentials from vault
+        portainer_password = self.storage.secrets.get_secret(f"portainer_password_{server_name}")
+        admin_email = self.storage.config.get("admin_email", "admin@localhost")
+
+        if not portainer_password:
+            # Generate new password if not exists
+            portainer_password = PasswordGenerator.generate_secure_password()
+            self.storage.secrets.set_secret(f"portainer_password_{server_name}", portainer_password)
+
+        try:
+            # Initialize Portainer client
+            self.portainer = PortainerClient(
+                url=f"https://{server_ip}:9443",
+                username=admin_email,
+                password=portainer_password
+            )
+            logger.info(f"Portainer client initialized for server {server_name}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to initialize Portainer client: {e}")
+            return False
+
+    def _ensure_app_deployer(self) -> bool:
+        """
+        Ensure App Deployer is initialized
+
+        Returns:
+            True if App Deployer is ready
+        """
+        if self.app_deployer:
+            return True
+
+        if not self.portainer:
+            logger.error("Portainer client not initialized")
+            return False
+
+        if not self.cloudflare:
+            logger.warning("Cloudflare not configured - DNS setup will be skipped")
+
+        try:
+            self.app_deployer = AppDeployer(
+                portainer=self.portainer,
+                cloudflare=self.cloudflare,
+                registry=self.app_registry
+            )
+            logger.info("App Deployer initialized")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to initialize App Deployer: {e}")
+            return False
+
+    async def deploy_app(self, server_name: str, app_name: str,
+                        config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Deploy an application to a server
+
+        Args:
+            server_name: Name of the server
+            app_name: Name of the application
+            config: Optional deployment configuration
+
+        Returns:
+            Deployment result
+        """
+        logger.info(f"Deploying {app_name} to server {server_name}")
+
+        # Get server
+        server = self.get_server(server_name)
+        if not server:
+            return {
+                "success": False,
+                "error": f"Server {server_name} not found"
+            }
+
+        # Initialize Portainer if needed
+        if not self.portainer:
+            if not self._init_portainer_for_server(server_name):
+                return {
+                    "success": False,
+                    "error": "Failed to initialize Portainer client"
+                }
+
+        # Ensure App Deployer is ready
+        if not self._ensure_app_deployer():
+            return {
+                "success": False,
+                "error": "Failed to initialize App Deployer"
+            }
+
+        # Prepare configuration
+        if not config:
+            config = {}
+
+        # Add default values from storage
+        config.setdefault("admin_email", self.storage.config.get("admin_email", "admin@localhost"))
+        config.setdefault("network_name", "livchat_network")
+
+        # Add generated passwords for known apps
+        if app_name == "portainer" and "admin_password" not in config:
+            portainer_password = self.storage.secrets.get_secret(f"portainer_password_{server_name}")
+            if not portainer_password:
+                portainer_password = PasswordGenerator.generate()
+                self.storage.secrets.set_secret(f"portainer_password_{server_name}", portainer_password)
+            config["admin_password"] = portainer_password
+
+        # Deploy the app
+        result = await self.app_deployer.deploy(server, app_name, config)
+
+        # Configure DNS if successful and Cloudflare is configured
+        if result.get("success") and self.cloudflare:
+            dns_info = server.get("dns", {})
+            if dns_info.get("zone"):
+                dns_result = await self.app_deployer.configure_dns(
+                    server, app_name, dns_info["zone"]
+                )
+                result["dns_configured"] = dns_result.get("success", False)
+
+        # Update server state
+        if result.get("success"):
+            apps = server.get("applications", [])
+            if app_name not in apps:
+                apps.append(app_name)
+                server["applications"] = apps
+                self.storage.state.update_server(server_name, server)
+
+        return result
+
+    def list_available_apps(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        List available applications from the registry
+
+        Args:
+            category: Optional category filter
+
+        Returns:
+            List of available applications
+        """
+        return self.app_registry.list_apps(category=category)
+
+    async def delete_app(self, server_name: str, app_name: str) -> Dict[str, Any]:
+        """
+        Delete an application from a server
+
+        Args:
+            server_name: Name of the server
+            app_name: Name of the application
+
+        Returns:
+            Deletion result
+        """
+        logger.info(f"Deleting {app_name} from server {server_name}")
+
+        # Get server
+        server = self.get_server(server_name)
+        if not server:
+            return {
+                "success": False,
+                "error": f"Server {server_name} not found"
+            }
+
+        # Initialize Portainer if needed
+        if not self.portainer:
+            if not self._init_portainer_for_server(server_name):
+                return {
+                    "success": False,
+                    "error": "Failed to initialize Portainer client"
+                }
+
+        # Ensure App Deployer is ready
+        if not self._ensure_app_deployer():
+            return {
+                "success": False,
+                "error": "Failed to initialize App Deployer"
+            }
+
+        # Delete the app
+        result = await self.app_deployer.delete_app(server, app_name)
+
+        # Update server state if successful
+        if result.get("success"):
+            apps = server.get("applications", [])
+            if app_name in apps:
+                apps.remove(app_name)
+                server["applications"] = apps
+                self.storage.state.update_server(server_name, server)
+
+        return result
 
 
 # Compatibility alias for migration period

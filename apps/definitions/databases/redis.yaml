@@ -1,0 +1,51 @@
+name: redis
+category: database
+version: "7-alpine"
+description: Redis in-memory data structure store
+
+ports:
+  - "6379:6379"
+
+volumes:
+  - redis_data:/data
+
+environment:
+  - REDIS_PASSWORD={{ vault.redis_password }}
+
+command: redis-server --requirepass {{ vault.redis_password }} --appendonly yes
+
+deploy:
+  mode: replicated
+  replicas: 1
+  placement:
+    constraints:
+      - node.role == manager
+  resources:
+    limits:
+      memory: 512M
+    reservations:
+      memory: 128M
+
+health_check:
+  test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 20s
+
+dependencies: []
+
+dns_prefix: rds
+
+labels:
+  - "com.livchat.app=redis"
+  - "com.livchat.category=database"
+
+network: livchat_network
+
+backup:
+  enabled: true
+  schedule: "0 3 * * *"  # Daily at 3 AM
+  retention: 7  # Keep 7 days of backups
+  command: |
+    redis-cli --rdb /data/dump_$(date +%Y%m%d_%H%M%S).rdb BGSAVE

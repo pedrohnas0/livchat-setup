@@ -1,0 +1,93 @@
+name: n8n
+category: automation
+version: "1.25.1"
+description: Workflow automation platform
+
+ports:
+  - "5678:5678"
+
+volumes:
+  - n8n_data:/home/node/.n8n
+  - n8n_files:/files
+
+environment:
+  DB_TYPE: postgresdb
+  DB_POSTGRESDB_HOST: postgres
+  DB_POSTGRESDB_PORT: 5432
+  DB_POSTGRESDB_DATABASE: n8n_queue
+  DB_POSTGRESDB_USER: postgres
+  DB_POSTGRESDB_PASSWORD: "{{ vault.postgres_password }}"
+
+  EXECUTIONS_MODE: queue
+  QUEUE_BULL_REDIS_HOST: redis
+  QUEUE_BULL_REDIS_PORT: 6379
+  QUEUE_BULL_REDIS_PASSWORD: "{{ vault.redis_password }}"
+  QUEUE_BULL_REDIS_DB: 1
+
+  N8N_BASIC_AUTH_ACTIVE: "true"
+  N8N_BASIC_AUTH_USER: "{{ admin_email }}"
+  N8N_BASIC_AUTH_PASSWORD: "{{ vault.n8n_password }}"
+
+  N8N_HOST: "edt.{{ domain }}"
+  N8N_PORT: 5678
+  N8N_PROTOCOL: https
+  WEBHOOK_URL: "https://whk.{{ domain }}/"
+
+  N8N_EMAIL_MODE: smtp
+  N8N_SMTP_HOST: "{{ smtp_host }}"
+  N8N_SMTP_PORT: "{{ smtp_port }}"
+  N8N_SMTP_USER: "{{ smtp_user }}"
+  N8N_SMTP_PASS: "{{ smtp_password }}"
+  N8N_SMTP_SENDER: "{{ smtp_sender }}"
+
+deploy:
+  mode: replicated
+  replicas: 1
+  placement:
+    constraints:
+      - node.role == manager
+  resources:
+    limits:
+      memory: 2G
+    reservations:
+      memory: 512M
+
+health_check:
+  endpoint: http://localhost:5678/healthz
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 60s
+
+dependencies:
+  - postgres
+  - redis
+
+dns_prefix: edt
+
+additional_dns:
+  - prefix: whk
+    comment: n8n webhook endpoint
+
+labels:
+  - "traefik.enable=true"
+  # Editor interface
+  - "traefik.http.routers.n8n.rule=Host(`edt.{{ domain }}`)"
+  - "traefik.http.routers.n8n.entrypoints=websecure"
+  - "traefik.http.routers.n8n.tls.certresolver=letsencrypt"
+  - "traefik.http.services.n8n.loadbalancer.server.port=5678"
+  # Webhook interface
+  - "traefik.http.routers.n8n-webhook.rule=Host(`whk.{{ domain }}`)"
+  - "traefik.http.routers.n8n-webhook.entrypoints=websecure"
+  - "traefik.http.routers.n8n-webhook.tls.certresolver=letsencrypt"
+  - "traefik.http.services.n8n-webhook.loadbalancer.server.port=5678"
+
+network: livchat_network
+
+post_deploy:
+  - action: wait_health
+    timeout: 120
+  - action: wait_dependencies
+    services:
+      - postgres
+      - redis

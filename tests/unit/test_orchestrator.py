@@ -1,7 +1,7 @@
 """Tests for orchestrator module"""
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, ANY
 
 from src.orchestrator import DependencyResolver, Orchestrator
 
@@ -159,10 +159,11 @@ class TestOrchestrator:
 
         assert "Unsupported provider" in str(exc.value)
 
+    @patch('src.orchestrator.SSHKeyManager')
     @patch('src.orchestrator.HetznerProvider')
-    def test_create_server_with_provider(self, mock_provider_class, temp_config_dir):
+    def test_create_server_with_provider(self, mock_provider_class, mock_ssh_class, temp_config_dir):
         """Test creating server with configured provider"""
-        # Setup mock
+        # Setup mocks
         mock_provider = Mock()
         mock_provider.create_server.return_value = {
             "id": "12345",
@@ -172,15 +173,28 @@ class TestOrchestrator:
         }
         mock_provider_class.return_value = mock_provider
 
+        # Mock SSH manager
+        mock_ssh = Mock()
+        mock_ssh.generate_key_pair.return_value = {
+            "public_key": "ssh-ed25519 AAAA...",
+            "fingerprint": "test-fingerprint"
+        }
+        mock_ssh.add_to_hetzner.return_value = True
+        mock_ssh_class.return_value = mock_ssh
+
         orchestrator = Orchestrator(temp_config_dir)
         orchestrator.init()
         orchestrator.configure_provider("hetzner", "token")
 
         # Create server
-        server = orchestrator.create_server("test-server", "cx21", "nbg1")
+        orchestrator.create_server("test-server", "cx21", "nbg1")
 
-        # Check provider called
-        mock_provider.create_server.assert_called_once_with("test-server", "cx21", "nbg1")
+        # Check provider called with correct parameters including SSH key
+        mock_provider.create_server.assert_called_once_with(
+            "test-server", "cx21", "nbg1",
+            image="ubuntu-22.04",
+            ssh_keys=["test-server_key"]
+        )
 
         # Check server saved to state
         saved = orchestrator.storage.state.get_server("test-server")
@@ -385,3 +399,62 @@ class TestOrchestrator:
         mock_setup.deploy_traefik.assert_called_once()
         call_args = mock_setup.deploy_traefik.call_args
         assert call_args.args[1]["ssl_email"] == "admin@example.com"
+
+    @patch('asyncio.run')
+    @patch('src.orchestrator.PortainerClient')
+    @patch('src.orchestrator.ServerSetup')
+    def test_deploy_portainer_with_auto_init(self, mock_setup_class, mock_portainer_class,
+                                            mock_asyncio_run, temp_config_dir, sample_server_data):
+        """Test deploying Portainer with automatic admin initialization"""
+        # Setup mocks
+        mock_setup = Mock()
+        mock_result = Mock(success=True)
+        mock_setup.deploy_portainer.return_value = mock_result
+        mock_setup_class.return_value = mock_setup
+
+        mock_portainer = Mock()
+        mock_portainer_class.return_value = mock_portainer
+
+        # Mock asyncio.run to return expected values
+        mock_asyncio_run.side_effect = [
+            True,  # wait_for_ready returns True
+            True   # initialize_admin returns True
+        ]
+
+        # Create orchestrator
+        orchestrator = Orchestrator(temp_config_dir)
+        orchestrator.init()
+
+        # Add server to state
+        orchestrator.storage.state.add_server("test-server", sample_server_data)
+
+        # Set admin email
+        orchestrator.storage.config.set("admin_email", "admin@test.com")
+
+        # Deploy Portainer
+        result = orchestrator.deploy_portainer("test-server")
+
+        # Verify deployment success
+        assert result is True
+
+        # Verify server_setup.deploy_portainer was called
+        mock_setup.deploy_portainer.assert_called_once()
+
+        # Verify PortainerClient was created with correct parameters
+        mock_portainer_class.assert_called_with(
+            url="https://192.168.1.1:9443",
+            username="admin@test.com",
+            password=ANY  # Password is generated
+        )
+
+        # Verify wait_for_ready and initialize_admin were called via asyncio.run
+        assert mock_asyncio_run.call_count == 2
+
+        # Verify password was saved to vault
+        saved_password = orchestrator.storage.secrets.get_secret("portainer_password_test-server")
+        assert saved_password is not None
+        assert len(saved_password) == 64  # PasswordGenerator creates 64-char passwords
+
+        # Verify application was added to server state
+        server = orchestrator.storage.state.get_server("test-server")
+        assert "portainer" in server.get("applications", [])

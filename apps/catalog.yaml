@@ -1,0 +1,159 @@
+# LivChat Setup - Application Catalog
+# This file indexes all available application definitions
+
+version: "1.0.0"
+updated: "2025-01-18"
+
+categories:
+  - name: infrastructure
+    description: Core infrastructure components
+    apps:
+      - portainer
+      - traefik
+
+  - name: database
+    description: Database and storage systems
+    apps:
+      - postgres
+      - redis
+      - mysql
+      - mongodb
+
+  - name: automation
+    description: Automation and workflow tools
+    apps:
+      - n8n
+
+  - name: communication
+    description: Communication and chat platforms
+    apps:
+      - chatwoot
+      - evolution
+
+  - name: monitoring
+    description: Monitoring and observability
+    apps:
+      - grafana
+      - prometheus
+      - dozzle
+
+  - name: cms
+    description: Content management systems
+    apps:
+      - directus
+      - wordpress
+      - nextcloud
+
+featured_apps:
+  - name: portainer
+    description: Essential for container management
+    required: true
+
+  - name: postgres
+    description: Most popular database for apps
+    required: false
+
+  - name: redis
+    description: Cache and queue management
+    required: false
+
+  - name: n8n
+    description: Powerful automation platform
+    required: false
+
+quick_stacks:
+  basic:
+    name: Basic Infrastructure
+    description: Minimal setup with container management
+    apps:
+      - portainer
+      - traefik
+
+  automation:
+    name: Automation Stack
+    description: Complete automation platform
+    apps:
+      - portainer
+      - postgres
+      - redis
+      - n8n
+
+  communication:
+    name: Communication Stack
+    description: Customer communication platform
+    apps:
+      - portainer
+      - postgres
+      - redis
+      - chatwoot
+      - evolution
+
+  monitoring:
+    name: Monitoring Stack
+    description: Full observability stack
+    apps:
+      - portainer
+      - postgres
+      - grafana
+      - prometheus
+      - dozzle
+
+dns_prefixes:
+  portainer: ptn
+  traefik: tfk
+  postgres: pg
+  redis: rds
+  mysql: sql
+  mongodb: mdb
+  n8n: edt
+  n8n-webhook: whk
+  chatwoot: chat
+  evolution: evo
+  grafana: gfn
+  prometheus: prm
+  dozzle: log
+  directus: dir
+  wordpress: wp
+  nextcloud: nc
+  minio: mno
+  minio-s3: s3
+  pgadmin: pga
+  rabbitmq: rmq
+
+app_requirements:
+  minimum_server:
+    cpu_cores: 2
+    ram_gb: 4
+    disk_gb: 40
+    description: Minimum for basic apps
+
+  recommended_server:
+    cpu_cores: 4
+    ram_gb: 8
+    disk_gb: 80
+    description: Recommended for production
+
+  heavy_apps:
+    - name: gitlab
+      min_ram_gb: 8
+    - name: nextcloud
+      min_ram_gb: 4
+    - name: elasticsearch
+      min_ram_gb: 4
+
+compatibility_matrix:
+  postgres:
+    "14":
+      - n8n
+      - chatwoot
+      - grafana
+      - directus
+    "15":
+      - all
+
+  redis:
+    "7":
+      - all
+    "6":
+      - n8n
+      - chatwoot
