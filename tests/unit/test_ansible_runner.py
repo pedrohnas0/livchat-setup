@@ -3,7 +3,7 @@
 import json
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock, call
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -74,13 +74,17 @@ class TestAnsibleRunner:
         assert "server2" in hosts
         assert "server3" in hosts
 
-    @patch('ansible_runner.run')
+    @patch('src.ansible_executor.ansible_runner.run')
     def test_run_playbook(self, mock_ansible_run, ansible_runner):
         """Test running an Ansible playbook"""
         # Setup mock
         mock_result = Mock()
         mock_result.rc = 0
         mock_result.status = "successful"
+        mock_result.stdout = Mock()
+        mock_result.stdout.read = Mock(return_value="Success output")
+        mock_result.stderr = ""
+        mock_result.stats = {}
         mock_ansible_run.return_value = mock_result
 
         # Run playbook
@@ -95,13 +99,16 @@ class TestAnsibleRunner:
         assert result.exit_code == 0
         mock_ansible_run.assert_called_once()
 
-    @patch('ansible_runner.run')
+    @patch('src.ansible_executor.ansible_runner.run')
     def test_run_playbook_with_failure(self, mock_ansible_run, ansible_runner):
         """Test handling playbook failure"""
         # Setup mock for failure
         mock_result = Mock()
         mock_result.rc = 1
         mock_result.status = "failed"
+        mock_result.stdout = Mock()
+        mock_result.stdout.read = Mock(return_value="")
+        mock_result.stderr = "Error occurred"
         mock_result.stats = {"failures": {"host1": 1}}
         mock_ansible_run.return_value = mock_result
 
@@ -115,13 +122,17 @@ class TestAnsibleRunner:
         assert result.success is False
         assert result.exit_code == 1
 
-    @patch('ansible_runner.run')
+    @patch('src.ansible_executor.ansible_runner.run')
     def test_run_adhoc_command(self, mock_ansible_run, ansible_runner):
         """Test running ad-hoc Ansible command"""
         # Setup mock
         mock_result = Mock()
         mock_result.rc = 0
         mock_result.status = "successful"
+        mock_result.stdout = Mock()
+        mock_result.stdout.read = Mock(return_value="pong")
+        mock_result.stderr = ""
+        mock_result.stats = {}
         mock_ansible_run.return_value = mock_result
 
         # Run ad-hoc command
@@ -139,7 +150,7 @@ class TestAnsibleRunner:
         call_kwargs = mock_ansible_run.call_args.kwargs
         assert call_kwargs["module"] == "ping"
 
-    def test_save_inventory_to_file(self, ansible_runner, temp_dir):
+    def test_save_inventory_to_file(self, ansible_runner):
         """Test saving inventory to file"""
         inventory = {
             "all": {

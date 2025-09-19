@@ -426,8 +426,9 @@ class ServerSetup:
             "portainer_https_port": config.get("portainer_https_port", 9443),
             "portainer_edge_port": config.get("portainer_edge_port", 8000),
             "portainer_admin_password": config.get("portainer_admin_password"),
-            "portainer_admin_email": config.get("portainer_admin_email", "pedrohnas0@gmail.com"),
-            "portainer_data_path": config.get("portainer_data_path", "/var/lib/portainer")
+            "portainer_admin_email": config.get("portainer_admin_email", "admin@example.com"),
+            "portainer_data_path": config.get("portainer_data_path", "/var/lib/portainer"),
+            "dns_domain": config.get("dns_domain", "")  # Domain for Traefik routing
         }
 
         result = self.ansible_runner.run_playbook(

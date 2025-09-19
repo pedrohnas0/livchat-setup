@@ -81,6 +81,13 @@ class TestHetznerProvider:
         mock_client = Mock()
         mock_client_class.return_value = mock_client
 
+        # Mock SSH keys
+        mock_ssh_key = Mock()
+        mock_ssh_key.name = "my-key"
+        mock_ssh_key.id = 123
+        mock_client.ssh_keys.get_all.return_value = [mock_ssh_key]
+        mock_client.ssh_keys.get_by_name.return_value = mock_ssh_key
+
         # Mock server
         mock_server = Mock()
         mock_server.id = 12345

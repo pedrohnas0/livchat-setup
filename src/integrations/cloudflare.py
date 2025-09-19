@@ -93,7 +93,9 @@ class CloudflareClient:
             List of zone dictionaries
         """
         try:
-            zones = self.client.zones.list()
+            zones_response = self.client.zones.list()
+            # Convert to list to get proper length and iterate
+            zones = list(zones_response)
             logger.info(f"Found {len(zones)} zones")
 
             # Handle both SDK objects and dict responses (for mocking)
@@ -119,8 +121,11 @@ class CloudflareClient:
             Zone dictionary or None if not found
         """
         try:
-            zones = self.client.zones.list(name=zone_name)
-            if zones:
+            zones_response = self.client.zones.list(name=zone_name)
+            # Convert to list to properly access elements
+            zones = list(zones_response)
+
+            if zones and len(zones) > 0:
                 zone = zones[0]
                 # Handle both SDK objects and dict responses
                 if isinstance(zone, dict):
@@ -159,7 +164,7 @@ class CloudflareClient:
             logger.info(f"Creating {type} record: {name} -> {content}")
 
             # Create record using SDK
-            record = self.client.zones.dns_records.create(
+            record = self.client.dns.records.create(
                 zone_id=zone_id,
                 type=type,
                 name=name,
@@ -386,14 +391,17 @@ class CloudflareClient:
         try:
             # Get records from API
             if type:
-                records = self.client.zones.dns_records.list(
+                records_response = self.client.dns.records.list(
                     zone_id=zone_id,
                     type=type
                 )
             else:
-                records = self.client.zones.dns_records.list(
+                records_response = self.client.dns.records.list(
                     zone_id=zone_id
                 )
+
+            # Convert to list to properly iterate
+            records = list(records_response)
 
             # Convert to dict
             result = []
@@ -455,7 +463,7 @@ class CloudflareClient:
             Success status
         """
         try:
-            self.client.zones.dns_records.delete(
+            self.client.dns.records.delete(
                 zone_id=zone_id,
                 dns_record_id=record_id
             )

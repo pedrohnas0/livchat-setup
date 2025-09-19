@@ -28,7 +28,7 @@ services:
   portainer:
     image: portainer/portainer-ce:{{ portainer_version }}
     command: >-
-      --admin-password-file /run/secrets/portainer_password
+      --admin-password-file /run/secrets/portainer_admin_password
       --host unix:///var/run/docker.sock
     ports:
       - "{{ portainer_https_port }}:9443"
@@ -39,7 +39,7 @@ services:
     networks:
       - portainer_agent
     secrets:
-      - portainer_password
+      - portainer_admin_password
     deploy:
       mode: replicated
       replicas: 1
@@ -60,7 +60,11 @@ services:
       labels:
         - "traefik.enable=true"
         - "traefik.docker.network=traefik"
+{% if portainer_domain %}
+        - "traefik.http.routers.portainer.rule=Host(`{{ portainer_domain }}`)"
+{% else %}
         - "traefik.http.routers.portainer.rule=Host(`portainer.{{ ansible_hostname }}`)"
+{% endif %}
         - "traefik.http.routers.portainer.entrypoints=websecure"
         - "traefik.http.routers.portainer.tls=true"
         - "traefik.http.services.portainer.loadbalancer.server.port=9443"
@@ -74,7 +78,5 @@ networks:
       encrypted: "true"
 
 secrets:
-  portainer_password:
-    external: false
-    # Note: In production, use external secret or proper secret management
-    # This is a placeholder that will be replaced by actual deployment
+  portainer_admin_password:
+    external: true

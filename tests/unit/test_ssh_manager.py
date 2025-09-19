@@ -20,20 +20,22 @@ class TestSSHKeyManager:
             yield Path(tmp)
 
     @pytest.fixture
-    def mock_storage(self):
+    def mock_storage(self, temp_dir):
         """Mock storage manager"""
         storage = Mock()
         storage.secrets = Mock()
-        storage.secrets.store_secret = Mock(return_value=True)
+        storage.secrets.set_secret = Mock(return_value=True)
         storage.secrets.get_secret = Mock(return_value="mock_private_key")
+        # Properly mock config_dir as a Path object
+        storage.config_dir = temp_dir / ".livchat"
         return storage
 
     @pytest.fixture
     def ssh_manager(self, mock_storage, temp_dir):
         """Create SSH manager with mocked dependencies"""
-        with patch('src.ssh_manager.Path.home', return_value=temp_dir):
-            manager = SSHKeyManager(mock_storage)
-            return manager
+        # No need to patch Path.home since we're using storage.config_dir
+        manager = SSHKeyManager(mock_storage)
+        return manager
 
     def test_generate_ed25519_key_pair(self, ssh_manager):
         """Test Ed25519 key pair generation"""
@@ -72,10 +74,10 @@ class TestSSHKeyManager:
         result = ssh_manager.generate_key_pair("vault-test")
 
         # Verify vault was called
-        mock_storage.secrets.store_secret.assert_called()
+        mock_storage.secrets.set_secret.assert_called()
 
         # Verify the key name format
-        call_args = mock_storage.secrets.store_secret.call_args
+        call_args = mock_storage.secrets.set_secret.call_args
         assert "ssh_key_vault-test" in call_args[0][0]
 
     def test_key_permissions(self, ssh_manager, temp_dir):
