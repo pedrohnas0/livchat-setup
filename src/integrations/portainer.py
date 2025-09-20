@@ -75,7 +75,8 @@ class PortainerClient:
         if self.token and 'Authorization' not in headers:
             headers['Authorization'] = f"Bearer {self.token}"
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        # Disable SSL verification for self-signed certificates
+        async with httpx.AsyncClient(timeout=self.timeout, verify=False) as client:
             response = await client.request(
                 method=method,
                 url=url,
