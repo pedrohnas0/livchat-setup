@@ -1,5 +1,6 @@
 """Core orchestration and dependency resolution for LivChat Setup"""
 
+import os
 import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List
@@ -177,7 +178,7 @@ class Orchestrator:
         self.ssh_manager = SSHKeyManager(self.storage)
         self.credentials = CredentialsManager(self.storage)
         self.ansible_runner = AnsibleRunner(self.ssh_manager)
-        self.server_setup = ServerSetup(self.ansible_runner)
+        self.server_setup = ServerSetup(self.ansible_runner, self.storage)
 
         # Initialize integration clients
         self.cloudflare = None  # Will be initialized with configure_cloudflare()
@@ -214,6 +215,13 @@ class Orchestrator:
         """Initialize configuration directory and files"""
         logger.info("Initializing LivChat Setup...")
         self.storage.init()
+
+        # Set default admin email if not configured
+        if not self.storage.config.get("admin_email"):
+            default_email = os.environ.get("CLOUDFLARE_EMAIL", "pedrohnas0@gmail.com")
+            self.storage.config.set("admin_email", default_email)
+            logger.info(f"Set default admin email: {default_email}")
+
         logger.info("Initialization complete")
 
     def configure_provider(self, provider_name: str, token: str) -> None:
@@ -724,20 +732,21 @@ class Orchestrator:
             # Get server IP
             server_ip = server.get("ip")
 
-            # Get or generate credentials
+            # Get credentials from vault (should have been saved during deployment)
             admin_email = self.storage.config.get("admin_email", "admin@localhost")
             portainer_password = self.storage.secrets.get_secret(f"portainer_password_{server_name}")
 
             if not portainer_password:
-                # Generate secure 64-character password
-                portainer_password = PasswordGenerator.generate_secure_password()
-                self.storage.secrets.set_secret(f"portainer_password_{server_name}", portainer_password)
-                logger.info(f"Generated secure password for Portainer admin")
+                # This should not happen if deployment was successful
+                logger.error(f"Portainer password not found in vault for {server_name}")
+                logger.error("This indicates a problem during deployment")
+                return False
 
             # Create temporary Portainer client for initialization
+            # NOTE: Portainer initial admin is always 'admin', we can update later via API
             portainer_client = PortainerClient(
                 url=f"https://{server_ip}:9443",
-                username=admin_email,
+                username="admin",  # Portainer requires 'admin' for initial setup
                 password=portainer_password
             )
 
@@ -788,15 +797,18 @@ class Orchestrator:
         admin_email = self.storage.config.get("admin_email", "admin@localhost")
 
         if not portainer_password:
-            # Generate new password if not exists
-            portainer_password = PasswordGenerator.generate_secure_password()
-            self.storage.secrets.set_secret(f"portainer_password_{server_name}", portainer_password)
+            # Password should have been saved during deployment
+            logger.error(f"Portainer password not found in vault for {server_name}")
+            logger.error("This indicates the deployment did not save the password correctly")
+            return False
 
         try:
             # Initialize Portainer client
+            # NOTE: Portainer currently only supports 'admin' as initial username
+            # We save the email for future use but use 'admin' for now
             self.portainer = PortainerClient(
                 url=f"https://{server_ip}:9443",
-                username=admin_email,
+                username="admin",  # Portainer requires 'admin' as initial username
                 password=portainer_password
             )
             logger.info(f"Portainer client initialized for server {server_name}")

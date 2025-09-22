@@ -3,6 +3,9 @@ category: communication
 version: "3.4.0"
 description: Open-source customer engagement platform
 
+# Method determines deployment flow
+deploy_method: portainer
+
 ports:
   - "3000:3000"
 

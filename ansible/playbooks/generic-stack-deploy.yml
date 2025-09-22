@@ -1,0 +1,91 @@
+---
+# Generic Stack Deployment Playbook
+# Used by UnifiedDeployer for ansible-based deployments
+
+- name: Deploy {{ stack_name }} Stack via Docker Compose
+  hosts: all
+  become: yes
+  
+  vars:
+    stack_dir: "/opt/stacks/{{ stack_name }}"
+    compose_file: "{{ stack_dir }}/docker-compose.yml"
+  
+  tasks:
+    - name: Create stack directory
+      file:
+        path: "{{ stack_dir }}"
+        state: directory
+        mode: '0755'
+    
+    - name: Copy stack file to server
+      copy:
+        src: "{{ stack_file }}"
+        dest: "{{ compose_file }}"
+        mode: '0644'
+      when: stack_file is defined
+    
+    - name: Ensure Docker network exists
+      docker_network:
+        name: livchat_network
+        driver: overlay
+        attachable: yes
+        scope: swarm
+
+    # Create Portainer data directory if needed
+    - name: Create Portainer data directory
+      file:
+        path: /var/lib/portainer
+        state: directory
+        mode: '0755'
+      when: stack_name == "portainer"
+
+    # Handle Docker secrets for specific stacks
+    - name: Create Portainer admin password secret
+      shell: |
+        # Check if secret already exists
+        if docker secret ls | grep -q portainer_admin_password; then
+          echo "Secret already exists"
+        else
+          # Use the password provided by Python orchestrator
+          ADMIN_PASSWORD="{{ portainer_admin_password | default('admin' ~ ansible_date_time.epoch) }}"
+          # Note: Username will be {{ portainer_admin_username | default('admin@localhost') }}
+          echo "$ADMIN_PASSWORD" | docker secret create portainer_admin_password -
+          echo "Secret created with password for user: {{ portainer_admin_username | default('admin@localhost') }}"
+        fi
+      when: stack_name == "portainer"
+      register: secret_result
+
+    - name: Display secret creation result
+      debug:
+        msg: "{{ secret_result.stdout }}"
+      when: stack_name == "portainer" and secret_result is defined
+
+    - name: Deploy stack with Docker Stack
+      docker_stack:
+        name: "{{ stack_name }}"
+        compose:
+          - "{{ compose_file }}"
+        state: present
+        with_registry_auth: yes
+      register: deploy_result
+    
+    - name: Wait for stack to be running
+      shell: |
+        docker stack services {{ stack_name }} --format {% raw %}"table {{.Name}}\t{{.Replicas}}"{% endraw %}
+      register: stack_status
+      until: '"1/1" in stack_status.stdout or "2/2" in stack_status.stdout'
+      retries: 30
+      delay: 10
+    
+    - name: Show deployment result
+      debug:
+        msg: "Stack {{ stack_name }} deployed successfully"
+        verbosity: 1
+    
+    - name: Get stack services
+      command: docker stack services {{ stack_name }}
+      register: services_output
+    
+    - name: Display stack services
+      debug:
+        var: services_output.stdout_lines

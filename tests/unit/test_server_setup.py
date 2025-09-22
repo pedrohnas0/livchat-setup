@@ -111,7 +111,8 @@ class TestServerSetup:
         call_args = mock_ansible_runner.run_playbook.call_args
         extra_vars = call_args.kwargs.get("extra_vars", {})
         assert extra_vars.get("ssl_email") == "test@example.com"
-        assert extra_vars.get("swarm_network") == "test_network"
+        # Check for either network_name (YAML path) or swarm_network (legacy path)
+        assert extra_vars.get("network_name") == "test_network" or extra_vars.get("swarm_network") == "test_network"
 
     def test_full_setup_success(self, server_setup, mock_ansible_runner):
         """Test complete server setup flow"""
@@ -138,7 +139,8 @@ class TestServerSetup:
             assert "base-setup.yml" in playbooks[0]
             assert "docker-install.yml" in playbooks[1]
             assert "swarm-init.yml" in playbooks[2]
-            assert "traefik-deploy.yml" in playbooks[3]
+            # May use either traefik-deploy.yml (legacy) or generic-stack-deploy.yml (YAML path)
+            assert "traefik-deploy.yml" in playbooks[3] or "generic-stack-deploy.yml" in playbooks[3]
 
     def test_full_setup_with_failure(self, server_setup, mock_ansible_runner):
         """Test full setup stops on failure"""

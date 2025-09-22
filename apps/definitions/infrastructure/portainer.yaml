@@ -1,31 +1,140 @@
 name: portainer
 category: infrastructure
 version: "2.19.4"
-description: Container management platform for Docker/Swarm
+description: "Container management platform for Docker/Swarm"
 
-ports:
-  - "9443:9443"  # HTTPS UI
-  - "9000:9000"  # HTTP UI (optional)
-  - "8000:8000"  # Edge agent
+# Method determines deployment flow
+deploy_method: ansible
 
-volumes:
-  - portainer_data:/data
-  - /var/run/docker.sock:/var/run/docker.sock:ro
+# Configurable variables with defaults
+variables:
+  portainer_version:
+    default: "2.19.4"
+    description: "Portainer version"
+    required: false
+  portainer_https_port:
+    default: "9443"
+    description: "HTTPS port for Portainer UI"
+    required: false
+  portainer_edge_port:
+    default: "8000"
+    description: "Edge agent port"
+    required: false
+  portainer_data_path:
+    default: "/var/lib/portainer"
+    description: "Data persistence path"
+    required: false
+  portainer_domain:
+    default: ""
+    description: "Domain for Traefik routing (optional)"
+    required: false
+  admin_password:
+    default: ""
+    description: "Admin password (will be auto-generated if empty)"
+    required: false
 
-environment:
-  - ADMIN_PASSWORD={{ vault.portainer_password }}
+# System requirements
+requirements:
+  min_ram_mb: 256
+  min_cpu_cores: 0.5
+  ports:
+    - 9443
+    - 8000
 
-deploy:
-  mode: replicated
-  replicas: 1
-  placement:
-    constraints:
-      - node.role == manager
-  restart_policy:
-    condition: on-failure
-    delay: 5s
-    max_attempts: 3
+# No dependencies
+dependencies: []
 
+# Docker Compose Stack (variable substitution via environment)
+compose: |
+  version: '3.8'
+
+  services:
+    agent:
+      image: portainer/agent:${PORTAINER_VERSION:-2.19.4}
+      volumes:
+        - /var/run/docker.sock:/var/run/docker.sock
+        - /var/lib/docker/volumes:/var/lib/docker/volumes
+      networks:
+        - portainer_agent
+      deploy:
+        mode: global
+        placement:
+          constraints:
+            - node.platform.os == linux
+        restart_policy:
+          condition: any
+          delay: 5s
+          max_attempts: 3
+        resources:
+          limits:
+            cpus: '0.5'
+            memory: 128M
+          reservations:
+            cpus: '0.1'
+            memory: 64M
+
+    portainer:
+      image: portainer/portainer-ce:${PORTAINER_VERSION:-2.19.4}
+      command: >-
+        --admin-password-file /run/secrets/portainer_admin_password
+        --host unix:///var/run/docker.sock
+      ports:
+        - "${PORTAINER_HTTPS_PORT:-9443}:9443"
+        - "${PORTAINER_EDGE_PORT:-8000}:8000"
+      volumes:
+        - ${PORTAINER_DATA_PATH:-/var/lib/portainer}:/data
+        - /var/run/docker.sock:/var/run/docker.sock
+      networks:
+        - portainer_agent
+        - livchat_network
+      secrets:
+        - portainer_admin_password
+      deploy:
+        mode: replicated
+        replicas: 1
+        placement:
+          constraints:
+            - node.role == manager
+        restart_policy:
+          condition: any
+          delay: 5s
+          max_attempts: 3
+        resources:
+          limits:
+            cpus: '1'
+            memory: 256M
+          reservations:
+            cpus: '0.25'
+            memory: 128M
+        labels:
+          - "traefik.enable=true"
+          - "traefik.docker.network=livchat_network"
+          - "traefik.http.routers.portainer.rule=Host(`${PORTAINER_DOMAIN:-portainer.localhost}`)"
+          - "traefik.http.routers.portainer.entrypoints=websecure"
+          - "traefik.http.routers.portainer.tls=true"
+          - "traefik.http.services.portainer.loadbalancer.server.port=9443"
+          - "traefik.http.services.portainer.loadbalancer.server.scheme=https"
+
+  networks:
+    portainer_agent:
+      driver: overlay
+      attachable: true
+      driver_opts:
+        encrypted: "true"
+    livchat_network:
+      external: true
+      name: livchat_network
+
+  secrets:
+    portainer_admin_password:
+      external: true
+
+# Stack configuration
+stack_name: portainer
+network: livchat_network
+dns_prefix: ptn
+
+# Health check configuration
 health_check:
   endpoint: https://localhost:9443
   interval: 30s
@@ -33,27 +142,11 @@ health_check:
   retries: 3
   start_period: 40s
 
-dependencies: []
-
-dns_prefix: ptn
-
-labels:
-  - "traefik.enable=true"
-  - "traefik.http.routers.portainer.rule=Host(`ptn.{{ domain }}`)"
-  - "traefik.http.routers.portainer.entrypoints=websecure"
-  - "traefik.http.routers.portainer.tls.certresolver=letsencrypt"
-  - "traefik.http.services.portainer.loadbalancer.server.port=9443"
-  - "traefik.http.services.portainer.loadbalancer.server.scheme=https"
-
-stack_name: portainer
-network: livchat_network
-
+# Post deployment actions
 post_deploy:
   - action: wait_health
     timeout: 120
   - action: init_admin
+    description: "Initialize Portainer admin user"
     endpoint: "/api/users/admin/init"
     method: POST
-    payload:
-      Username: "{{ admin_email }}"
-      Password: "{{ vault.portainer_password }}"

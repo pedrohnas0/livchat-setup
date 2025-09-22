@@ -4,6 +4,7 @@ hcloud
 ansible-core>=2.16.0
 ansible-runner>=2.3.0
 cryptography
+jsondiff>=2.2.0
 
 # Integration dependencies
 httpx>=0.25.0

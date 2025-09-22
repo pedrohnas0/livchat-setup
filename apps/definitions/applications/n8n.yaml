@@ -3,6 +3,9 @@ category: automation
 version: "1.25.1"
 description: Workflow automation platform
 
+# Method determines deployment flow
+deploy_method: portainer
+
 ports:
   - "5678:5678"
 

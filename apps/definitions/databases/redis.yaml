@@ -3,6 +3,9 @@ category: database
 version: "7-alpine"
 description: Redis in-memory data structure store
 
+# Method determines deployment flow
+deploy_method: portainer
+
 ports:
   - "6379:6379"
 

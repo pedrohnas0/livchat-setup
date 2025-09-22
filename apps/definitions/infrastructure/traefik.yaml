@@ -1,0 +1,127 @@
+name: traefik
+category: infrastructure
+version: "v3.2.3"
+description: "Reverse proxy with automatic SSL via Let's Encrypt"
+
+# Method determines deployment flow
+deploy_method: ansible
+
+# Configurable variables with defaults
+variables:
+  network_name:
+    default: "livchat_network"
+    description: "Docker Swarm overlay network"
+    required: false
+  ssl_email:
+    default: "admin@example.com"
+    description: "Email for Let's Encrypt SSL certificates"
+    required: true
+  traefik_version:
+    default: "v3.2.3"
+    description: "Traefik version"
+    required: false
+
+# System requirements
+requirements:
+  min_ram_mb: 128
+  min_cpu_cores: 0.5
+  ports:
+    - 80
+    - 443
+
+# No dependencies
+dependencies: []
+
+# Docker Compose Stack (variable substitution via environment)
+compose: |
+  version: "3.7"
+  services:
+
+  ## --------------------------- LIVCHAT --------------------------- ##
+
+    traefik:
+      image: traefik:${TRAEFIK_VERSION:-v3.2.3}
+      command:
+        - "--api.dashboard=true"
+        - "--providers.swarm=true"
+        - "--providers.docker.endpoint=unix:///var/run/docker.sock"
+        - "--providers.docker.exposedbydefault=false"
+        - "--providers.docker.network=${NETWORK_NAME:-livchat_network}"
+        - "--entrypoints.web.address=:80"
+        - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+        - "--entrypoints.web.http.redirections.entryPoint.scheme=https"
+        - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
+        - "--entrypoints.websecure.address=:443"
+        - "--entrypoints.web.transport.respondingTimeouts.idleTimeout=3600"
+        - "--certificatesresolvers.letsencryptresolver.acme.httpchallenge=true"
+        - "--certificatesresolvers.letsencryptresolver.acme.httpchallenge.entrypoint=web"
+        - "--certificatesresolvers.letsencryptresolver.acme.storage=/etc/traefik/letsencrypt/acme.json"
+        - "--certificatesresolvers.letsencryptresolver.acme.email=${SSL_EMAIL}"
+        - "--log.level=INFO"
+        - "--log.format=common"
+        - "--log.filePath=/var/log/traefik/traefik.log"
+        - "--accesslog=true"
+        - "--accesslog.filepath=/var/log/traefik/access-log"
+
+      volumes:
+        - "vol_certificates:/etc/traefik/letsencrypt"
+        - "/var/run/docker.sock:/var/run/docker.sock:ro"
+
+      networks:
+        - ${NETWORK_NAME:-livchat_network}
+
+      ports:
+        - target: 80
+          published: 80
+          mode: host
+        - target: 443
+          published: 443
+          mode: host
+
+      deploy:
+        placement:
+          constraints:
+            - node.role == manager
+        labels:
+          - "traefik.enable=true"
+          - "traefik.http.middlewares.redirect-https.redirectscheme.scheme=https"
+          - "traefik.http.middlewares.redirect-https.redirectscheme.permanent=true"
+          - "traefik.http.routers.http-catchall.rule=Host(`{host:.+}`)"
+          - "traefik.http.routers.http-catchall.entrypoints=web"
+          - "traefik.http.routers.http-catchall.middlewares=redirect-https@docker"
+          - "traefik.http.routers.http-catchall.priority=1"
+
+  ## --------------------------- LIVCHAT --------------------------- ##
+
+  volumes:
+    vol_shared:
+      external: true
+      name: volume_swarm_shared
+    vol_certificates:
+      external: true
+      name: volume_swarm_certificates
+
+  networks:
+    ${NETWORK_NAME:-livchat_network}:
+      external: true
+      attachable: true
+      name: ${NETWORK_NAME:-livchat_network}
+
+# Stack configuration
+stack_name: traefik
+network: livchat_network
+
+# Health check configuration
+health_check:
+  endpoint: http://localhost:80
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 40s
+
+# Post deployment actions
+post_deploy:
+  - action: wait_health
+    timeout: 120
+  - action: verify_ssl
+    description: "Verify SSL certificate provisioning"

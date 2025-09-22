@@ -45,7 +45,8 @@ class PortainerClient:
         self.username = username
         self.password = password
         self.token: Optional[str] = None
-        self.timeout = httpx.Timeout(30.0)
+        # Increase timeout for initial connections to remote servers
+        self.timeout = httpx.Timeout(60.0, connect=30.0)
 
     def _get_headers(self) -> Dict[str, str]:
         """Get headers with authentication"""
@@ -55,9 +56,9 @@ class PortainerClient:
         return headers
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=2, max=10),
-        retry=retry_if_exception_type(httpx.TimeoutException)
+        stop=stop_after_attempt(5),  # More attempts for initial connection
+        wait=wait_exponential(multiplier=2, min=4, max=30),  # Longer waits between attempts
+        retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectTimeout, httpx.ConnectError))
     )
     async def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
         """
@@ -399,8 +400,12 @@ class PortainerClient:
             response = await self._request("GET", "/api/system/status")
             return response.status_code == 200
         except Exception as e:
-            logger.error(f"Health check failed: {e}")
+            logger.debug(f"Health check failed: {e}")  # Debug level to reduce noise during wait
             return False
+
+    async def verify_health(self) -> bool:
+        """Alias for health_check for compatibility"""
+        return await self.health_check()
 
     async def initialize_admin(self, username: str = None, password: str = None) -> bool:
         """

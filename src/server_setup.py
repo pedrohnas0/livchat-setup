@@ -3,6 +3,9 @@
 import logging
 import socket
 import time
+import tempfile
+import os
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field
@@ -24,18 +27,33 @@ class SetupResult:
 class ServerSetup:
     """Orchestrates complete server setup process"""
 
-    def __init__(self, ansible_runner: Any):
+    def __init__(self, ansible_runner: Any, storage=None):
         """
         Initialize ServerSetup
 
         Args:
             ansible_runner: AnsibleRunner instance for executing playbooks
+            storage: Optional StorageManager instance for password storage
         """
         self.ansible_runner = ansible_runner
         self.setup_status = {}  # Track setup status per server
+        self.storage = storage  # Storage manager for secrets
 
         # Define playbook paths
         self.playbook_dir = Path(__file__).parent.parent / "ansible" / "playbooks"
+
+        # Initialize AppRegistry for YAML definitions
+        from .app_registry import AppRegistry
+        self.app_registry = AppRegistry()
+
+        # Load infrastructure definitions
+        definitions_dir = Path(__file__).parent.parent / "apps" / "definitions"
+        if definitions_dir.exists():
+            try:
+                self.app_registry.load_definitions(str(definitions_dir))
+                logger.info(f"Loaded {len(self.app_registry.apps)} stack definitions")
+            except Exception as e:
+                logger.warning(f"Could not load app definitions: {e}")
 
     def check_port_open(self, host: str, port: int = 22, timeout: float = 5) -> bool:
         """
@@ -355,6 +373,139 @@ class ServerSetup:
             details={"network": network_name}
         )
 
+    def deploy_infrastructure_from_yaml(self, server: Dict, stack_name: str, config: Optional[Dict] = None) -> SetupResult:
+        """
+        Deploy infrastructure stack from YAML definition using Ansible
+
+        Args:
+            server: Server configuration
+            stack_name: Name of the stack to deploy (e.g., 'traefik', 'portainer')
+            config: Optional configuration
+
+        Returns:
+            SetupResult object
+        """
+        logger.info(f"Deploying {stack_name} from YAML definition on {server['name']}")
+
+        # Get stack definition from registry
+        stack_def = self.app_registry.get_app(stack_name)
+        if not stack_def:
+            logger.warning(f"No YAML definition found for {stack_name}")
+            return SetupResult(
+                success=False,
+                step=f"{stack_name}-deploy",
+                message=f"Stack definition not found: {stack_name}"
+            )
+
+        # Verify it's an infrastructure component (ansible deployment)
+        if stack_def.get('deploy_method') != 'ansible':
+            logger.warning(f"{stack_name} is not configured for Ansible deployment")
+            return SetupResult(
+                success=False,
+                step=f"{stack_name}-deploy",
+                message=f"{stack_name} should be deployed via {stack_def.get('deploy_method', 'unknown')}"
+            )
+
+        config = config or {}
+        inventory = self.create_inventory(server)
+
+        # Prepare variables
+        extra_vars = {
+            "stack_name": stack_name,
+            "server_ip": server["ip"],
+            "ansible_host": server["ip"],
+            "ansible_user": "root"
+        }
+
+        # Add variables from config and YAML definition
+        if 'variables' in stack_def:
+            for var_name, var_def in stack_def['variables'].items():
+                if var_name in config:
+                    extra_vars[var_name] = config[var_name]
+                elif 'default' in var_def:
+                    extra_vars[var_name] = var_def['default']
+                elif var_def.get('required', False):
+                    return SetupResult(
+                        success=False,
+                        step=f"{stack_name}-deploy",
+                        message=f"Required variable '{var_name}' not provided"
+                    )
+
+        # Add any additional config values
+        for key, value in config.items():
+            if key not in extra_vars:
+                extra_vars[key] = value
+
+        # Get compose content
+        compose_content = stack_def.get('compose', '')
+        if not compose_content:
+            return SetupResult(
+                success=False,
+                step=f"{stack_name}-deploy",
+                message=f"No compose definition found for {stack_name}"
+            )
+
+        # Substitute variables in compose content
+        for key, value in extra_vars.items():
+            # Replace both ${KEY} and ${key} patterns
+            compose_content = compose_content.replace(f"${{{key.upper()}}}", str(value))
+            compose_content = compose_content.replace(f"${{{key}}}", str(value))
+            # Also handle patterns with defaults like ${KEY:-default}
+            pattern = re.compile(rf'\${{\s*{re.escape(key)}\s*:-[^}}]*\}}')
+            compose_content = pattern.sub(str(value), compose_content)
+            pattern_upper = re.compile(rf'\${{\s*{re.escape(key.upper())}\s*:-[^}}]*\}}')
+            compose_content = pattern_upper.sub(str(value), compose_content)
+
+        # Create temporary compose file
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False) as f:
+            f.write(compose_content)
+            stack_file = f.name
+
+        extra_vars["stack_file"] = stack_file
+
+        # Use generic stack deployment playbook
+        playbook_path = self.playbook_dir / "generic-stack-deploy.yml"
+
+        # If generic playbook doesn't exist, fall back to specific one
+        if not playbook_path.exists():
+            specific_playbook = self.playbook_dir / f"{stack_name}-deploy.yml"
+            if specific_playbook.exists():
+                playbook_path = specific_playbook
+            else:
+                # Clean up temp file
+                try:
+                    os.remove(stack_file)
+                except:
+                    pass
+                return SetupResult(
+                    success=False,
+                    step=f"{stack_name}-deploy",
+                    message=f"No deployment playbook found for {stack_name}"
+                )
+
+        result = self.ansible_runner.run_playbook(
+            playbook_path=str(playbook_path),
+            inventory=inventory,
+            extra_vars=extra_vars
+        )
+
+        # Clean up temp file
+        try:
+            os.remove(stack_file)
+        except:
+            pass
+
+        success = result.success
+        self.update_status(server["name"], f"{stack_name}-deploy", success,
+                         f"{stack_name} deployed" if success else f"{stack_name} deployment failed")
+
+        return SetupResult(
+            success=success,
+            step=f"{stack_name}-deploy",
+            message=f"{stack_name} deployed successfully" if success else f"{stack_name} deployment failed",
+            details=result.details if hasattr(result, 'details') else {}
+        )
+
     def deploy_traefik(self, server: Dict, config: Optional[Dict] = None) -> SetupResult:
         """
         Deploy Traefik reverse proxy
@@ -366,7 +517,13 @@ class ServerSetup:
         Returns:
             SetupResult
         """
-        logger.info(f"Deploying Traefik on {server['name']}")
+        # Try YAML-based deployment first
+        result = self.deploy_infrastructure_from_yaml(server, "traefik", config)
+        if result.success or "Stack definition not found" not in result.message:
+            return result
+
+        # Fall back to original playbook-based deployment
+        logger.info(f"Deploying Traefik on {server['name']} using legacy playbook")
 
         playbook_path = self.playbook_dir / "traefik-deploy.yml"
         inventory = self.create_inventory(server)
@@ -406,20 +563,49 @@ class ServerSetup:
         Returns:
             SetupResult
         """
-        logger.info(f"Deploying Portainer on {server['name']}")
-
-        playbook_path = self.playbook_dir / "portainer-deploy.yml"
-        inventory = self.create_inventory(server)
-
-        config = config or {}
-
         # Generate secure password if not provided
+        config = config or {}
         if "portainer_admin_password" not in config:
-            # Import here to avoid circular dependency
             from .security_utils import PasswordGenerator
             password_gen = PasswordGenerator()
             config["portainer_admin_password"] = password_gen.generate_app_password("portainer")
-            logger.info("Generated secure 64-character password for Portainer")
+
+            # Save the password in vault for later use by orchestrator
+            if self.storage:
+                self.storage.secrets.set_secret(
+                    f"portainer_password_{server['name']}",
+                    config["portainer_admin_password"]
+                )
+                logger.info("Generated secure 64-character password for Portainer and saved to vault")
+            else:
+                logger.warning("No storage manager available, password won't be saved in vault")
+
+        # Save admin email for future use (OAuth, notifications, etc)
+        if "admin_email" not in config and self.storage:
+            config["admin_email"] = self.storage.config.get("admin_email", "pedrohnas0@gmail.com")
+
+        # Handle domain for Traefik - ensure PORTAINER_DOMAIN is set
+        if "dns_domain" in config:
+            config["portainer_domain"] = config["dns_domain"]  # Map dns_domain to portainer_domain
+            logger.info(f"Setting Portainer domain for Traefik: {config['portainer_domain']}")
+
+        # Try YAML-based deployment first
+        result = self.deploy_infrastructure_from_yaml(server, "portainer", config)
+        if result.success:
+            # Log access info on success
+            logger.info(f"Portainer deployed successfully on {server['name']}")
+            logger.info(f"Access URL: https://{server['ip']}:{config.get('portainer_https_port', 9443)}")
+            logger.info(f"Username: admin")
+            logger.info("Password: [Stored securely in Vault]")
+            return result
+        elif "Stack definition not found" not in result.message:
+            return result
+
+        # Fall back to original playbook-based deployment
+        logger.info(f"Deploying Portainer on {server['name']} using legacy playbook")
+
+        playbook_path = self.playbook_dir / "portainer-deploy.yml"
+        inventory = self.create_inventory(server)
 
         extra_vars = {
             "portainer_version": config.get("portainer_version", "2.19.4"),

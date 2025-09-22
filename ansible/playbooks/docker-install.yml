@@ -78,6 +78,7 @@
           - gnupg
           - lsb-release
           - software-properties-common
+          - python3-pip
         state: present
         update_cache: yes
       when: ansible_os_family == "Debian"
@@ -90,8 +91,17 @@
           - lvm2
           - ca-certificates
           - curl
+          - python3-pip
         state: present
       when: ansible_os_family == "RedHat"
+
+    # Install Python packages required for Docker Stack module
+    - name: Install jsondiff Python package (required for docker_stack module)
+      pip:
+        name: jsondiff
+        executable: pip3
+        state: present
+        extra_args: "--break-system-packages"
 
     # Debian/Ubuntu repository setup
     - name: Create directory for Docker keyrings (Debian/Ubuntu)

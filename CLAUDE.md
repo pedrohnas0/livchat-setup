@@ -238,6 +238,7 @@ class DependencyResolver:
 class AppDefinition:
     name: str
     version: str
+    deploy_method: str  # "ansible" for infrastructure, "portainer" for apps
     dependencies: List[AppDependency]
     requirements: ResourceRequirements
     environment: Dict[str, str]
@@ -247,11 +248,19 @@ class AppDefinition:
     # Exemplo: N8N
     example = {
         "name": "n8n",
+        "deploy_method": "portainer",  # Deployed via Portainer API
         "dependencies": [
             {"name": "postgres", "config": {"database": "n8n_queue"}},
             {"name": "redis", "config": {"db": 1}}
         ],
         "requirements": {"min_ram_mb": 1024, "min_cpu_cores": 1}
+    }
+
+    # Exemplo: Traefik
+    infrastructure_example = {
+        "name": "traefik",
+        "deploy_method": "ansible",  # Deployed via Ansible playbook
+        "compose": "...",  # Docker compose definition inline
     }
 ```
 
@@ -434,17 +443,16 @@ LivChatSetup/
 │
 ├── apps/                    # Application definitions (YAML)
 │   ├── catalog.yaml        # App registry
-│   └── definitions/
-│       ├── databases/
+│   └── definitions/        # All stack definitions with deploy_method
+│       ├── infrastructure/ # Infrastructure stacks (deploy_method: ansible)
+│       │   ├── traefik.yaml
+│       │   └── portainer.yaml
+│       ├── databases/      # Database stacks (deploy_method: portainer)
 │       │   ├── postgres.yaml
 │       │   └── redis.yaml
-│       └── applications/
+│       └── applications/   # Application stacks (deploy_method: portainer)
 │           ├── n8n.yaml
 │           └── chatwoot.yaml
-│
-├── templates/              # Jinja2 templates
-│   ├── traefik-stack.j2   # Traefik stack template
-│   └── portainer-stack.j2  # Portainer stack template
 │
 ├── ansible/                # Ansible automation
 │   ├── playbooks/
@@ -636,7 +644,7 @@ config = {
 - [x] Basic apps (Traefik deployado com sucesso)
 📄 **Plan-02:** Ansible Runner + SSH Keys + Base Infrastructure
 
-### Phase 3: Integrations [🔵 IN PLANNING]
+### Phase 3: Integrations [✅ COMPLETED]
 - [ ] Portainer API (cliente próprio)
 - [ ] Cloudflare API (SDK oficial)
 - [ ] App Registry com YAML
@@ -755,7 +763,7 @@ async def test_something(mock_httpx):
     pass  # Isso causa timeouts e testes lentos
 ```
 
-### Integration Tests [A DESENVOLVER]
+### Integration Tests [IMPLEMENTADO]
 ```python
 # tests/integration/
 
@@ -764,23 +772,26 @@ async def test_something(mock_httpx):
 # 2. NÃO devem fazer chamadas para APIs externas
 # 3. Podem testar interação entre múltiplos componentes
 # 4. Usar temp directories para isolamento
+# 5. PODEM usar mocks para serviços externos
 
 # Scenarios:
 - Deploy N8N com dependências (mocked)
 - Multi-server deployment (local state)
 - Rollback após falha
 - Configuração via API (local)
+- Workflow completo com mocks
 ```
 
-### E2E Tests [A DESENVOLVER]
+### E2E Tests [IMPLEMENTADO]
 ```python
 # tests/e2e/
 
 # REGRAS:
-# 1. APENAS aqui podem fazer chamadas REAIS
+# 1. SEMPRE fazem chamadas REAIS (sem mocks!)
 # 2. Controlado por variável de ambiente: LIVCHAT_E2E_REAL=true
-# 3. Sempre ter fallback para mocks quando variável não definida
+# 3. NÃO devem ter fallback para mocks (isso seria integration test)
 # 4. Cleanup obrigatório após testes
+# 5. Testam o sistema COMPLETO end-to-end
 
 # EXEMPLO:
 @pytest.fixture

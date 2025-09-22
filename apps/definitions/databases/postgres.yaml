@@ -3,6 +3,9 @@ category: database
 version: "14-alpine"
 description: PostgreSQL relational database
 
+# Method determines deployment flow
+deploy_method: portainer
+
 ports:
   - "5432:5432"
 
