@@ -763,6 +763,21 @@ class Orchestrator:
                     logger.info(f"   Access URL: https://{server_ip}:9443")
                     logger.info(f"   Username: {admin_email}")
                     logger.info(f"   Password stored in vault: portainer_password_{server_name}")
+
+                    # Create/ensure endpoint exists for the local Swarm
+                    try:
+                        endpoints = asyncio.run(portainer_client.list_endpoints())
+                        if not endpoints:
+                            logger.info("No endpoints found, creating local Swarm endpoint...")
+                            endpoint = asyncio.run(portainer_client.create_endpoint(
+                                name="local-swarm",
+                                endpoint_url="tcp://tasks.agent:9001"
+                            ))
+                            logger.info(f"✅ Created endpoint with ID: {endpoint.get('Id')}")
+                        else:
+                            logger.info(f"✅ Found {len(endpoints)} existing endpoint(s)")
+                    except Exception as e:
+                        logger.warning(f"Could not ensure endpoint exists: {e}")
                 else:
                     logger.warning("Portainer admin initialization returned false (may already be initialized)")
             else:

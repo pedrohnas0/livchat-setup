@@ -64,3 +64,52 @@ post_deploy:
       - chatwoot_production
       - grafana
       - directus
+
+# Docker Compose Stack section (for portainer deployment)
+compose_template: |
+  version: '3.8'
+  services:
+    postgres:
+      image: postgres:14-alpine
+      ports:
+        - "5432:5432"
+      volumes:
+        - postgres_data:/var/lib/postgresql/data
+        - postgres_backups:/backups
+      environment:
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: "{{ vault.postgres_password }}"
+        POSTGRES_DB: postgres
+        PGDATA: /var/lib/postgresql/data/pgdata
+      deploy:
+        mode: replicated
+        replicas: 1
+        placement:
+          constraints:
+            - node.role == manager
+        resources:
+          limits:
+            memory: 2G
+          reservations:
+            memory: 512M
+      healthcheck:
+        test: ["CMD-SHELL", "pg_isready -U postgres"]
+        interval: 30s
+        timeout: 10s
+        retries: 5
+        start_period: 30s
+      networks:
+        - livchat_network
+
+  volumes:
+    postgres_data:
+      external: true
+      name: postgres_data
+    postgres_backups:
+      external: true
+      name: postgres_backups
+
+  networks:
+    livchat_network:
+      external: true
+      name: livchat_network

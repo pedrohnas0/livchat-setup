@@ -71,11 +71,45 @@ class AppDeployer:
             # Generate docker-compose
             compose_yaml = self.registry.generate_compose(app_name, config)
 
+            # Create required volumes before deploying stack
+            if app.get("volumes"):
+                logger.info(f"Creating volumes for {app_name}")
+                import subprocess
+                for volume_mount in app.get("volumes", []):
+                    if ":" in volume_mount:
+                        volume_name = volume_mount.split(":")[0]
+                        # Only create named volumes, not bind mounts
+                        if not volume_name.startswith("/"):
+                            try:
+                                # Create volume via SSH command
+                                ssh_key = f"/tmp/livchat_e2e_complete/ssh_keys/{server['ssh_key']}"
+                                cmd = [
+                                    "ssh", "-i", ssh_key,
+                                    "-o", "StrictHostKeyChecking=no",
+                                    f"root@{server['ip']}",
+                                    f"docker volume create {volume_name} 2>/dev/null || echo 'Volume {volume_name} already exists'"
+                                ]
+                                result = subprocess.run(cmd, capture_output=True, text=True)
+                                logger.info(f"Volume {volume_name}: {result.stdout.strip()}")
+                            except Exception as ve:
+                                logger.warning(f"Volume {volume_name} creation issue: {ve}")
+
+            # Get correct endpoint ID from Portainer
+            endpoints = await self.portainer.list_endpoints()
+            endpoint_id = 1  # Default
+            if endpoints:
+                # Use the first available endpoint (usually the local Swarm)
+                endpoint_id = endpoints[0].get("Id", 1)
+                logger.info(f"Using Portainer endpoint ID: {endpoint_id}")
+            else:
+                logger.warning("No endpoints found in Portainer, using default ID 1")
+
             # Create stack in Portainer
             stack_name = app_name.replace("_", "-").lower()
             stack_result = await self.portainer.create_stack(
                 name=stack_name,
                 compose=compose_yaml,
+                endpoint_id=endpoint_id,
                 env=config.get("environment", {})
             )
 

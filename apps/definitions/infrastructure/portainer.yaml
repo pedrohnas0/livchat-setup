@@ -75,15 +75,12 @@ compose: |
 
     portainer:
       image: portainer/portainer-ce:${PORTAINER_VERSION:-2.19.4}
-      command: >-
-        --admin-password-file /run/secrets/portainer_admin_password
-        --host unix:///var/run/docker.sock
+      command: -H tcp://tasks.agent:9001 --tlsskipverify --admin-password-file /run/secrets/portainer_admin_password
       ports:
         - "${PORTAINER_HTTPS_PORT:-9443}:9443"
         - "${PORTAINER_EDGE_PORT:-8000}:8000"
       volumes:
-        - ${PORTAINER_DATA_PATH:-/var/lib/portainer}:/data
-        - /var/run/docker.sock:/var/run/docker.sock
+        - portainer_data:/data
       networks:
         - portainer_agent
         - livchat_network
@@ -108,12 +105,13 @@ compose: |
             memory: 128M
         labels:
           - "traefik.enable=true"
-          - "traefik.docker.network=livchat_network"
           - "traefik.http.routers.portainer.rule=Host(`${PORTAINER_DOMAIN:-portainer.localhost}`)"
+          - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+          - "traefik.http.routers.portainer.tls.certresolver=letsencryptresolver"
+          - "traefik.http.routers.portainer.service=portainer"
+          - "traefik.docker.network=livchat_network"
           - "traefik.http.routers.portainer.entrypoints=websecure"
-          - "traefik.http.routers.portainer.tls=true"
-          - "traefik.http.services.portainer.loadbalancer.server.port=9443"
-          - "traefik.http.services.portainer.loadbalancer.server.scheme=https"
+          - "traefik.http.routers.portainer.priority=1"
 
   networks:
     portainer_agent:
@@ -124,6 +122,11 @@ compose: |
     livchat_network:
       external: true
       name: livchat_network
+
+  volumes:
+    portainer_data:
+      external: true
+      name: portainer_data
 
   secrets:
     portainer_admin_password:

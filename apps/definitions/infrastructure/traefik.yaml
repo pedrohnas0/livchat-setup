@@ -1,6 +1,6 @@
 name: traefik
 category: infrastructure
-version: "v3.2.3"
+version: "v3.4.0"
 description: "Reverse proxy with automatic SSL via Let's Encrypt"
 
 # Method determines deployment flow
@@ -17,7 +17,7 @@ variables:
     description: "Email for Let's Encrypt SSL certificates"
     required: true
   traefik_version:
-    default: "v3.2.3"
+    default: "v3.4.0"
     description: "Traefik version"
     required: false
 
@@ -40,7 +40,7 @@ compose: |
   ## --------------------------- LIVCHAT --------------------------- ##
 
     traefik:
-      image: traefik:${TRAEFIK_VERSION:-v3.2.3}
+      image: traefik:${TRAEFIK_VERSION:-v3.4.0}
       command:
         - "--api.dashboard=true"
         - "--providers.swarm=true"
@@ -57,7 +57,7 @@ compose: |
         - "--certificatesresolvers.letsencryptresolver.acme.httpchallenge.entrypoint=web"
         - "--certificatesresolvers.letsencryptresolver.acme.storage=/etc/traefik/letsencrypt/acme.json"
         - "--certificatesresolvers.letsencryptresolver.acme.email=${SSL_EMAIL}"
-        - "--log.level=INFO"
+        - "--log.level=DEBUG"
         - "--log.format=common"
         - "--log.filePath=/var/log/traefik/traefik.log"
         - "--accesslog=true"

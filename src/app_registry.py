@@ -252,6 +252,21 @@ class AppRegistry:
             }
         }
 
+        # Add volume declarations if app has volumes
+        if app.get("volumes"):
+            compose["volumes"] = {}
+            for volume_mount in app.get("volumes", []):
+                # Extract volume name from mount (format: "volume_name:/path")
+                if ":" in volume_mount:
+                    volume_name = volume_mount.split(":")[0]
+                    # Only add named volumes, not bind mounts (which start with /)
+                    if not volume_name.startswith("/"):
+                        # SetupOrion style: mark as external with same name
+                        compose["volumes"][volume_name] = {
+                            "external": True,
+                            "name": volume_name
+                        }
+
         # Add environment variables
         env = app.get("environment", {})
         if isinstance(env, dict):

@@ -52,3 +52,46 @@ backup:
   retention: 7  # Keep 7 days of backups
   command: |
     redis-cli --rdb /data/dump_$(date +%Y%m%d_%H%M%S).rdb BGSAVE
+
+# Docker Compose Stack section (for portainer deployment)
+compose_template: |
+  version: '3.8'
+  services:
+    redis:
+      image: redis:7-alpine
+      command: ["redis-server", "--requirepass", "{{ vault.redis_password }}", "--appendonly", "yes"]
+      ports:
+        - "6379:6379"
+      volumes:
+        - redis_data:/data
+      environment:
+        REDIS_PASSWORD: "{{ vault.redis_password }}"
+      deploy:
+        mode: replicated
+        replicas: 1
+        placement:
+          constraints:
+            - node.role == manager
+        resources:
+          limits:
+            memory: 512M
+          reservations:
+            memory: 128M
+      healthcheck:
+        test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+        interval: 30s
+        timeout: 10s
+        retries: 3
+        start_period: 20s
+      networks:
+        - livchat_network
+
+  volumes:
+    redis_data:
+      external: true
+      name: redis_data
+
+  networks:
+    livchat_network:
+      external: true
+      name: livchat_network

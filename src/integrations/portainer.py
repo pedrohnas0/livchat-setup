@@ -290,6 +290,45 @@ class PortainerClient:
 
         return response.json()
 
+    async def create_endpoint(self, name: str = "primary",
+                             endpoint_url: str = "tcp://tasks.agent:9001") -> Dict:
+        """
+        Create a new endpoint (environment) in Portainer
+
+        Args:
+            name: Endpoint name
+            endpoint_url: Agent endpoint URL
+
+        Returns:
+            Created endpoint information
+        """
+        if not self.token:
+            await self.authenticate()
+
+        logger.info(f"Creating Portainer endpoint: {name}")
+
+        # Create endpoint for Docker Swarm with agent
+        # Type 2 = Agent environment
+        body = {
+            "Name": name,
+            "Type": 2,  # 2 = Agent environment
+            "URL": endpoint_url
+        }
+
+        response = await self._request(
+            "POST",
+            "/api/endpoints",
+            json=body,
+            headers=self._get_headers()
+        )
+
+        if response.status_code not in (200, 201):
+            raise PortainerError(f"Failed to create endpoint: {response.text}")
+
+        result = response.json()
+        logger.info(f"Endpoint created with ID: {result.get('Id')}")
+        return result
+
     async def get_endpoint(self, endpoint_id: int) -> Dict:
         """
         Get endpoint information
