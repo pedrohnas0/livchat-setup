@@ -589,8 +589,15 @@ class ServerSetup:
             config["portainer_domain"] = config["dns_domain"]  # Map dns_domain to portainer_domain
             logger.info(f"Setting Portainer domain for Traefik: {config['portainer_domain']}")
 
+        # Remove password from config before passing to Ansible (SetupOrion style)
+        # Password will be set via API after deployment
+        config_for_ansible = config.copy()
+        if "portainer_admin_password" in config_for_ansible:
+            del config_for_ansible["portainer_admin_password"]
+            logger.info("Password removed from Ansible config - will be set via API after deployment")
+
         # Try YAML-based deployment first
-        result = self.deploy_infrastructure_from_yaml(server, "portainer", config)
+        result = self.deploy_infrastructure_from_yaml(server, "portainer", config_for_ansible)
         if result.success:
             # Log access info on success
             logger.info(f"Portainer deployed successfully on {server['name']}")

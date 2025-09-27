@@ -402,24 +402,22 @@ class TestOrchestrator:
 
     @patch('asyncio.run')
     @patch('src.orchestrator.PortainerClient')
-    @patch('src.orchestrator.ServerSetup')
-    def test_deploy_portainer_with_auto_init(self, mock_setup_class, mock_portainer_class,
-                                            mock_asyncio_run, temp_config_dir, sample_server_data):
+    @patch('src.orchestrator.AnsibleRunner')
+    @patch('src.security_utils.PasswordGenerator')
+    def test_deploy_portainer_with_auto_init(self, mock_password_gen_class, mock_ansible_runner_class,
+                                            mock_portainer_class, mock_asyncio_run,
+                                            temp_config_dir, sample_server_data):
         """Test deploying Portainer with automatic admin initialization"""
-        # Setup mocks
-        mock_setup = Mock()
-        mock_result = Mock(success=True)
-        mock_setup.deploy_portainer.return_value = mock_result
-        mock_setup_class.return_value = mock_setup
+        # Setup password generator mock
+        mock_password_gen = Mock()
+        mock_password_gen.generate_app_password.return_value = "A" * 64  # 64-char password
+        mock_password_gen_class.return_value = mock_password_gen
 
-        mock_portainer = Mock()
-        mock_portainer_class.return_value = mock_portainer
-
-        # Mock asyncio.run to return expected values
-        mock_asyncio_run.side_effect = [
-            True,  # wait_for_ready returns True
-            True   # initialize_admin returns True
-        ]
+        # Mock AnsibleRunner
+        mock_ansible_runner = Mock()
+        mock_ansible_result = Mock(success=True, exit_code=0, stdout="", stderr="")
+        mock_ansible_runner.run_playbook.return_value = mock_ansible_result
+        mock_ansible_runner_class.return_value = mock_ansible_runner
 
         # Create orchestrator
         orchestrator = Orchestrator(temp_config_dir)
@@ -431,20 +429,27 @@ class TestOrchestrator:
         # Set admin email
         orchestrator.storage.config.set("admin_email", "admin@test.com")
 
+        # Mock Portainer client
+        mock_portainer = Mock()
+        mock_portainer_class.return_value = mock_portainer
+
+        # Mock asyncio.run to return expected values
+        mock_asyncio_run.side_effect = [
+            True,  # wait_for_ready returns True
+            True   # initialize_admin returns True
+        ]
+
         # Deploy Portainer
         result = orchestrator.deploy_portainer("test-server")
 
         # Verify deployment success
         assert result is True
 
-        # Verify server_setup.deploy_portainer was called
-        mock_setup.deploy_portainer.assert_called_once()
-
         # Verify PortainerClient was created with correct parameters
         mock_portainer_class.assert_called_with(
             url="https://192.168.1.1:9443",
-            username="admin@test.com",
-            password=ANY  # Password is generated
+            username="admin",  # Portainer requires 'admin' for initial setup
+            password="A" * 64  # The generated password
         )
 
         # Verify wait_for_ready and initialize_admin were called via asyncio.run
@@ -453,7 +458,7 @@ class TestOrchestrator:
         # Verify password was saved to vault
         saved_password = orchestrator.storage.secrets.get_secret("portainer_password_test-server")
         assert saved_password is not None
-        assert len(saved_password) == 64  # PasswordGenerator creates 64-char passwords
+        assert saved_password == "A" * 64
 
         # Verify application was added to server state
         server = orchestrator.storage.state.get_server("test-server")

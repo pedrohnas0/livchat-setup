@@ -75,7 +75,7 @@ compose: |
 
     portainer:
       image: portainer/portainer-ce:${PORTAINER_VERSION:-2.19.4}
-      command: -H tcp://tasks.agent:9001 --tlsskipverify --admin-password-file /run/secrets/portainer_admin_password
+      command: -H tcp://tasks.agent:9001 --tlsskipverify
       ports:
         - "${PORTAINER_HTTPS_PORT:-9443}:9443"
         - "${PORTAINER_EDGE_PORT:-8000}:8000"
@@ -84,8 +84,6 @@ compose: |
       networks:
         - portainer_agent
         - livchat_network
-      secrets:
-        - portainer_admin_password
       deploy:
         mode: replicated
         replicas: 1
@@ -125,12 +123,8 @@ compose: |
 
   volumes:
     portainer_data:
-      external: true
+      driver: local
       name: portainer_data
-
-  secrets:
-    portainer_admin_password:
-      external: true
 
 # Stack configuration
 stack_name: portainer

@@ -94,15 +94,29 @@ class AppDeployer:
                             except Exception as ve:
                                 logger.warning(f"Volume {volume_name} creation issue: {ve}")
 
-            # Get correct endpoint ID from Portainer
-            endpoints = await self.portainer.list_endpoints()
-            endpoint_id = 1  # Default
-            if endpoints:
-                # Use the first available endpoint (usually the local Swarm)
-                endpoint_id = endpoints[0].get("Id", 1)
-                logger.info(f"Using Portainer endpoint ID: {endpoint_id}")
-            else:
-                logger.warning("No endpoints found in Portainer, using default ID 1")
+            # Use endpoint ID 1 as default (like SetupOrion does)
+            # When Portainer is deployed with agent, the first endpoint created is ID 1
+            endpoint_id = 1
+
+            # Optional: Try to find "primary" endpoint like SetupOrion
+            try:
+                endpoints = await self.portainer.list_endpoints()
+                if endpoints:
+                    # Look for primary endpoint first (SetupOrion style)
+                    for ep in endpoints:
+                        if ep.get("Name") == "primary":
+                            endpoint_id = ep.get("Id", 1)
+                            logger.info(f"Found 'primary' endpoint with ID: {endpoint_id}")
+                            break
+                    else:
+                        # Use the first endpoint if no "primary" found
+                        if endpoints[0].get("Id"):
+                            endpoint_id = endpoints[0].get("Id")
+                            logger.info(f"Using first endpoint with ID: {endpoint_id}")
+                else:
+                    logger.info("No endpoints found, using default ID 1")
+            except Exception as e:
+                logger.warning(f"Could not list endpoints, using default ID 1: {e}")
 
             # Create stack in Portainer
             stack_name = app_name.replace("_", "-").lower()

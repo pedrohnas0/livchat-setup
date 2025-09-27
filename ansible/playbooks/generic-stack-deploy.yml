@@ -39,26 +39,17 @@
         mode: '0755'
       when: stack_name == "portainer"
 
-    # Handle Docker secrets for specific stacks
-    - name: Create Portainer admin password secret
+    # Create Portainer volume if needed (SetupOrion style)
+    - name: Create Portainer data volume
       shell: |
-        # Check if secret already exists
-        if docker secret ls | grep -q portainer_admin_password; then
-          echo "Secret already exists"
-        else
-          # Use the password provided by Python orchestrator
-          ADMIN_PASSWORD="{{ portainer_admin_password | default('admin' ~ ansible_date_time.epoch) }}"
-          # Note: Username will be {{ portainer_admin_username | default('admin@localhost') }}
-          echo "$ADMIN_PASSWORD" | docker secret create portainer_admin_password -
-          echo "Secret created with password for user: {{ portainer_admin_username | default('admin@localhost') }}"
-        fi
+        docker volume create portainer_data 2>/dev/null || echo "Volume portainer_data already exists"
       when: stack_name == "portainer"
-      register: secret_result
+      register: volume_result
 
-    - name: Display secret creation result
+    - name: Display volume creation result
       debug:
-        msg: "{{ secret_result.stdout }}"
-      when: stack_name == "portainer" and secret_result is defined
+        msg: "{{ volume_result.stdout }}"
+      when: stack_name == "portainer" and volume_result is defined
 
     - name: Deploy stack with Docker Stack
       docker_stack:

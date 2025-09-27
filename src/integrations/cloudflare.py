@@ -198,7 +198,7 @@ class CloudflareClient:
         """
         Setup server DNS with A record for Portainer
 
-        Creates: ptn.{subdomain}.{zone} -> server_ip
+        Creates/Updates: ptn.{subdomain}.{zone} -> server_ip
 
         Args:
             server: Server dictionary with 'name' and 'ip' keys
@@ -221,16 +221,40 @@ class CloudflareClient:
             # Check if record already exists
             existing = await self.get_dns_record(zone["id"], record_name, "A")
             if existing:
-                logger.info(f"A record already exists: {record_name}")
-                return {
-                    "success": True,
-                    "record_name": record_name,
-                    "record_type": "A",
-                    "record_id": existing["id"],
-                    "message": "Record already exists"
-                }
+                # Check if IP is correct
+                if existing["content"] == server["ip"]:
+                    logger.info(f"A record already exists with correct IP: {record_name} -> {server['ip']}")
+                    return {
+                        "success": True,
+                        "record_name": record_name,
+                        "record_type": "A",
+                        "record_id": existing["id"],
+                        "message": "Record already exists with correct IP"
+                    }
+                else:
+                    # IP is different, update it
+                    logger.warning(f"A record exists with wrong IP: {record_name} -> {existing['content']} (expected: {server['ip']})")
+                    record = await self.update_dns_record(
+                        zone_id=zone["id"],
+                        record_id=existing["id"],
+                        type="A",
+                        name=record_name,
+                        content=server["ip"],
+                        proxied=False,
+                        comment="portainer"
+                    )
+                    logger.info(f"Updated DNS record: {record_name} -> {server['ip']}")
+                    return {
+                        "success": True,
+                        "record_name": record_name,
+                        "record_type": "A",
+                        "record_id": record["id"],
+                        "zone_id": zone["id"],
+                        "server_ip": server["ip"],
+                        "message": f"Record updated from {existing['content']} to {server['ip']}"
+                    }
 
-            # Create A record for Portainer
+            # Create new A record for Portainer
             record = await self.create_dns_record(
                 zone_id=zone["id"],
                 type="A",
@@ -248,7 +272,8 @@ class CloudflareClient:
                 "record_type": "A",
                 "record_id": record["id"],
                 "zone_id": zone["id"],
-                "server_ip": server["ip"]
+                "server_ip": server["ip"],
+                "message": "New record created"
             }
 
         except Exception as e:
@@ -262,9 +287,9 @@ class CloudflareClient:
                          subdomain: Optional[str] = None,
                          comment: Optional[str] = None) -> Dict:
         """
-        Add CNAME record for application
+        Add/Update CNAME record for application
 
-        Creates: {app_prefix}.{subdomain}.{zone} -> ptn.{subdomain}.{zone}
+        Creates/Updates: {app_prefix}.{subdomain}.{zone} -> ptn.{subdomain}.{zone}
 
         Args:
             app_prefix: App prefix (e.g., "chat", "edt", "whk")
@@ -289,16 +314,39 @@ class CloudflareClient:
             # Check if record already exists
             existing = await self.get_dns_record(zone["id"], record_name, "CNAME")
             if existing:
-                logger.info(f"CNAME record already exists: {record_name}")
-                return {
-                    "success": True,
-                    "record_name": record_name,
-                    "target": target,
-                    "record_id": existing["id"],
-                    "message": "Record already exists"
-                }
+                # Check if target is correct
+                if existing["content"] == target:
+                    logger.info(f"CNAME record already exists with correct target: {record_name} -> {target}")
+                    return {
+                        "success": True,
+                        "record_name": record_name,
+                        "target": target,
+                        "record_id": existing["id"],
+                        "message": "Record already exists with correct target"
+                    }
+                else:
+                    # Target is different, update it
+                    logger.warning(f"CNAME record exists with wrong target: {record_name} -> {existing['content']} (expected: {target})")
+                    record = await self.update_dns_record(
+                        zone_id=zone["id"],
+                        record_id=existing["id"],
+                        type="CNAME",
+                        name=record_name,
+                        content=target,
+                        proxied=False,
+                        comment=comment or app_prefix
+                    )
+                    logger.info(f"Updated CNAME record: {record_name} -> {target}")
+                    return {
+                        "success": True,
+                        "record_name": record_name,
+                        "target": target,
+                        "record_id": record["id"],
+                        "zone_id": zone["id"],
+                        "message": f"Record updated from {existing['content']} to {target}"
+                    }
 
-            # Create CNAME record
+            # Create new CNAME record
             record = await self.create_dns_record(
                 zone_id=zone["id"],
                 type="CNAME",
@@ -315,7 +363,8 @@ class CloudflareClient:
                 "record_name": record_name,
                 "target": target,
                 "record_id": record["id"],
-                "zone_id": zone["id"]
+                "zone_id": zone["id"],
+                "message": "New record created"
             }
 
         except Exception as e:
@@ -450,6 +499,60 @@ class CloudflareClient:
         except Exception as e:
             logger.error(f"Failed to get DNS record: {e}")
             return None
+
+    async def update_dns_record(self, zone_id: str, record_id: str,
+                              type: str, name: str, content: str,
+                              proxied: bool = False, comment: str = None,
+                              ttl: int = 1) -> Dict:
+        """
+        Update an existing DNS record
+
+        Args:
+            zone_id: Zone ID
+            record_id: Record ID to update
+            type: Record type (A, CNAME, etc.)
+            name: Record name
+            content: New record content (IP for A, target for CNAME)
+            proxied: Enable Cloudflare proxy
+            comment: Comment for the record
+            ttl: TTL (1 = automatic)
+
+        Returns:
+            Updated record dictionary
+        """
+        try:
+            logger.info(f"Updating {type} record: {name} -> {content}")
+
+            # Update record using SDK
+            record = self.client.dns.records.update(
+                zone_id=zone_id,
+                dns_record_id=record_id,
+                type=type,
+                name=name,
+                content=content,
+                proxied=proxied,
+                comment=comment,
+                ttl=ttl
+            )
+
+            # Handle both SDK objects and dict responses
+            if isinstance(record, dict):
+                logger.info(f"Updated {type} record: {name} (ID: {record['id']})")
+                return record
+            else:
+                logger.info(f"Updated {type} record: {name} (ID: {record.id})")
+                return {
+                    "id": record.id,
+                    "type": record.type,
+                    "name": record.name,
+                    "content": record.content,
+                    "proxied": record.proxied,
+                    "comment": getattr(record, 'comment', comment)
+                }
+
+        except Exception as e:
+            logger.error(f"Failed to update DNS record: {e}")
+            raise CloudflareError(f"Failed to update DNS record: {e}")
 
     async def delete_dns_record(self, zone_id: str, record_id: str) -> bool:
         """
