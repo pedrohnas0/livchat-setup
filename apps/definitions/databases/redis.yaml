@@ -59,13 +59,11 @@ compose_template: |
   services:
     redis:
       image: redis:7-alpine
-      command: ["redis-server", "--requirepass", "{{ vault.redis_password }}", "--appendonly", "yes"]
+      command: ["redis-server", "--appendonly", "yes", "--port", "6379"]
       ports:
         - "6379:6379"
       volumes:
         - redis_data:/data
-      environment:
-        REDIS_PASSWORD: "{{ vault.redis_password }}"
       deploy:
         mode: replicated
         replicas: 1
@@ -78,7 +76,7 @@ compose_template: |
           reservations:
             memory: 128M
       healthcheck:
-        test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+        test: ["CMD", "redis-cli", "ping"]
         interval: 30s
         timeout: 10s
         retries: 3

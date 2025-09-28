@@ -307,10 +307,11 @@ class TestCompleteE2EWorkflow:
             # =====================================
             print(f"\n🐘 [STEP 5/7] Deploying PostgreSQL database...")
 
+            # Don't pass password, let it be generated (alphanumeric only)
             pg_result = asyncio.run(orchestrator.deploy_app(
                 server_name,
                 "postgres",
-                {"password": "postgres123!@#"}
+                {}  # Empty config, password will be auto-generated
             ))
 
             if pg_result.get('success'):
@@ -328,10 +329,11 @@ class TestCompleteE2EWorkflow:
             # =====================================
             print(f"\n🔴 [STEP 6/7] Deploying Redis cache...")
 
+            # Don't pass password, let it be generated if needed
             redis_result = asyncio.run(orchestrator.deploy_app(
                 server_name,
                 "redis",
-                {}
+                {}  # Empty config
             ))
 
             if redis_result.get('success'):

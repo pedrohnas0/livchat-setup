@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
+from .security_utils import PasswordGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +233,57 @@ class AppRegistry:
         if not app:
             raise ValueError(f"App not found: {app_name}")
 
-        # Build compose structure
+        # Generate passwords if needed using official PasswordGenerator
+        password_gen = PasswordGenerator()
+
+        # Generate secure PostgreSQL password if not provided
+        # Use only alphanumeric to avoid special char issues
+        if app_name == "postgres" and "postgres_password" not in config:
+            postgres_password = password_gen.generate_app_password("postgres", alphanumeric_only=True)
+            config["postgres_password"] = postgres_password
+            logger.info(f"Generated PostgreSQL password for deployment (alphanumeric only)")
+
+        # Generate secure Redis password if not provided
+        # Use only alphanumeric to avoid special char issues
+        if app_name == "redis" and "redis_password" not in config:
+            redis_password = password_gen.generate_app_password("redis", alphanumeric_only=True)
+            config["redis_password"] = redis_password
+            logger.info(f"Generated Redis password for deployment (alphanumeric only)")
+
+        # If app has compose_template, use it (more complete definition)
+        if "compose_template" in app:
+            # Use the compose template from the YAML
+            compose_str = app["compose_template"]
+
+            # Replace template variables with actual values
+            if "{{" in compose_str:
+                # Replace vault references with generated or provided passwords
+                # Ensure we have a password for postgres
+                if "{{ vault.postgres_password }}" in compose_str:
+                    if "postgres_password" not in config:
+                        # Generate if missing (shouldn't happen but just in case)
+                        config["postgres_password"] = password_gen.generate_app_password("postgres", alphanumeric_only=True)
+                    compose_str = compose_str.replace("{{ vault.postgres_password }}",
+                                                     config["postgres_password"])
+
+                # Replace redis password if present
+                if "{{ vault.redis_password }}" in compose_str:
+                    if "redis_password" not in config:
+                        config["redis_password"] = password_gen.generate_app_password("redis", alphanumeric_only=True)
+                    compose_str = compose_str.replace("{{ vault.redis_password }}",
+                                                     config["redis_password"])
+
+                # Replace portainer password if present
+                compose_str = compose_str.replace("{{ vault.portainer_password }}",
+                                                 config.get("admin_password", ""))
+
+                # Replace other template variables
+                for key, value in config.items():
+                    compose_str = compose_str.replace(f"{{{{ {key} }}}}", str(value))
+
+            return compose_str
+
+        # Fallback: Build compose structure from scratch (for backward compatibility)
         compose = {
             "version": "3.8",
             "services": {
@@ -277,7 +328,9 @@ class AppRegistry:
                     value = value.replace("{{ vault.portainer_password }}",
                                         config.get("admin_password", ""))
                     value = value.replace("{{ vault.postgres_password }}",
-                                        config.get("postgres_password", ""))
+                                        config.get("postgres_password", "postgres123"))
+                    value = value.replace("{{ vault.redis_password }}",
+                                        config.get("redis_password", ""))
                 compose["services"][app_name]["environment"][key] = value
         elif isinstance(env, list):
             # Handle list format (KEY=VALUE)

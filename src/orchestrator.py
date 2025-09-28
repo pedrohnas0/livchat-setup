@@ -899,7 +899,9 @@ class Orchestrator:
         if app_name == "portainer" and "admin_password" not in config:
             portainer_password = self.storage.secrets.get_secret(f"portainer_password_{server_name}")
             if not portainer_password:
-                portainer_password = PasswordGenerator.generate()
+                # Generate alphanumeric password to avoid shell/Docker issues
+                password_gen = PasswordGenerator()
+                portainer_password = password_gen.generate_app_password("portainer", alphanumeric_only=True)
                 self.storage.secrets.set_secret(f"portainer_password_{server_name}", portainer_password)
             config["admin_password"] = portainer_password
 

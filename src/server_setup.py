@@ -566,18 +566,34 @@ class ServerSetup:
         # Generate secure password if not provided
         config = config or {}
         if "portainer_admin_password" not in config:
-            from .security_utils import PasswordGenerator
-            password_gen = PasswordGenerator()
-            config["portainer_admin_password"] = password_gen.generate_app_password("portainer")
+            from .security_utils import PasswordGenerator, CredentialsManager
 
-            # Save the password in vault for later use by orchestrator
             if self.storage:
+                # Use CredentialsManager for proper vault integration
+                cred_manager = CredentialsManager(self.storage)
+                credentials = cred_manager.generate_app_credentials(
+                    app_name="portainer",
+                    username="admin",
+                    alphanumeric_only=True  # Use only alphanumeric chars to avoid shell/Docker issues
+                )
+                config["portainer_admin_password"] = credentials.password
+
+                # Save complete credentials to vault (CredentialsManager does this automatically)
+                cred_manager.save_credentials(credentials)
+
+                # Also save in the old format for backward compatibility
                 self.storage.secrets.set_secret(
                     f"portainer_password_{server['name']}",
-                    config["portainer_admin_password"]
+                    credentials.password
                 )
-                logger.info("Generated secure 64-character password for Portainer and saved to vault")
+                logger.info("Generated secure 64-character alphanumeric password for Portainer and saved to vault")
             else:
+                # Fallback if no storage available
+                password_gen = PasswordGenerator()
+                config["portainer_admin_password"] = password_gen.generate_app_password(
+                    "portainer",
+                    alphanumeric_only=True
+                )
                 logger.warning("No storage manager available, password won't be saved in vault")
 
         # Save admin email for future use (OAuth, notifications, etc)

@@ -81,6 +81,7 @@ compose_template: |
         POSTGRES_PASSWORD: "{{ vault.postgres_password }}"
         POSTGRES_DB: postgres
         PGDATA: /var/lib/postgresql/data/pgdata
+        TZ: America/Sao_Paulo
       deploy:
         mode: replicated
         replicas: 1

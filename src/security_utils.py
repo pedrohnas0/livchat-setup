@@ -86,29 +86,40 @@ class PasswordGenerator:
         return password
 
     @staticmethod
-    def generate_app_password(app_name: str = "default") -> str:
+    def generate_app_password(app_name: str = "default", alphanumeric_only: bool = False) -> str:
         """
         Generate a 64-character secure password for applications
 
         Args:
             app_name: Name of the application
+            alphanumeric_only: If True, only use letters and numbers (no special chars)
 
         Returns:
             64-character secure password
         """
-        # Use safe special characters that work well with most applications
-        safe_special_chars = "@_!#%&*-+="
+        if alphanumeric_only:
+            # Generate alphanumeric-only password for apps that don't handle special chars well
+            password = PasswordGenerator.generate_secure_password(
+                length=64,
+                include_uppercase=True,
+                include_lowercase=True,
+                include_digits=True,
+                include_special=False  # No special characters
+            )
+            logger.info(f"Generated 64-character alphanumeric password for {app_name}")
+        else:
+            # Use safe special characters that work well with most applications
+            safe_special_chars = "@_!#%&*-+="
+            password = PasswordGenerator.generate_secure_password(
+                length=64,
+                include_uppercase=True,
+                include_lowercase=True,
+                include_digits=True,
+                include_special=True,
+                special_chars=safe_special_chars
+            )
+            logger.info(f"Generated 64-character password with special chars for {app_name}")
 
-        password = PasswordGenerator.generate_secure_password(
-            length=64,
-            include_uppercase=True,
-            include_lowercase=True,
-            include_digits=True,
-            include_special=True,
-            special_chars=safe_special_chars
-        )
-
-        logger.info(f"Generated 64-character password for {app_name}")
         return password
 
     @staticmethod
@@ -169,7 +180,8 @@ class CredentialsManager:
                                 email: str = None,
                                 username: str = None,
                                 custom_password: str = None,
-                                url: str = None) -> AppCredentials:
+                                url: str = None,
+                                alphanumeric_only: bool = False) -> AppCredentials:
         """
         Generate credentials for an application
 
@@ -179,6 +191,7 @@ class CredentialsManager:
             username: Username (default: admin)
             custom_password: Use custom password instead of generating
             url: Application URL
+            alphanumeric_only: If True, generate password without special chars
 
         Returns:
             AppCredentials object
@@ -205,7 +218,8 @@ class CredentialsManager:
             password = custom_password
         else:
             # Generate secure 64-character password
-            password = self.password_gen.generate_app_password(app_name)
+            # Use alphanumeric only for apps that have issues with special chars
+            password = self.password_gen.generate_app_password(app_name, alphanumeric_only=alphanumeric_only)
 
         credentials = AppCredentials(
             app_name=app_name,
