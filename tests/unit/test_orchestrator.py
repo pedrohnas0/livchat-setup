@@ -103,6 +103,57 @@ class TestDependencyResolver:
         config = self.resolver.configure_dependency("n8n", "redis")
         assert config["db"] == 1
 
+    @patch('subprocess.run')
+    def test_create_postgres_database_for_dependent_app(self, mock_subprocess):
+        """Test that postgres databases are created for dependent apps (TDD)"""
+        # Mock subprocess calls (two calls: find container, create database)
+        mock_find_container = Mock()
+        mock_find_container.returncode = 0
+        mock_find_container.stdout = "postgres_postgres.1.abc123xyz\n"
+
+        mock_create_db = Mock()
+        mock_create_db.returncode = 0
+        mock_create_db.stdout = "CREATE DATABASE\n"
+
+        # Setup mock to return different values for each call
+        mock_subprocess.side_effect = [mock_find_container, mock_create_db]
+
+        # This test specifies the expected behavior:
+        # When an app with postgres dependency is deployed,
+        # the required database should be created via SQL
+
+        # Simulate creating database for N8N
+        result = self.resolver.create_dependency_resources(
+            parent_app="n8n",
+            dependency="postgres",
+            config={
+                "database": "n8n_queue",
+                "user": "n8n_user",
+                "password": "test_password"
+            },
+            server_ip="192.168.1.1",
+            ssh_key="/path/to/key"
+        )
+
+        # Should return success
+        assert result["success"] is True
+        assert result["database"] == "n8n_queue"
+        assert result["container"] == "postgres_postgres.1.abc123xyz"
+
+        # Should have been called twice (find container + create db)
+        assert mock_subprocess.call_count == 2
+
+        # Verify first call: find postgres container
+        first_call_args = mock_subprocess.call_args_list[0][0][0]
+        assert "docker ps" in " ".join(first_call_args)
+        assert "postgres" in " ".join(first_call_args)
+
+        # Verify second call: create database
+        second_call_args = mock_subprocess.call_args_list[1][0][0]
+        assert "docker exec" in " ".join(second_call_args)
+        assert "createdb" in " ".join(second_call_args) or "CREATE DATABASE" in " ".join(second_call_args).upper()
+        assert "n8n_queue" in " ".join(second_call_args)
+
 
 class TestOrchestrator:
     """Test main orchestrator"""

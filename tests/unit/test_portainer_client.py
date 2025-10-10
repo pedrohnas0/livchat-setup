@@ -66,8 +66,8 @@ class TestPortainerClient:
         assert "Authentication failed" in str(exc.value)
 
     @pytest.mark.asyncio
-    async def test_create_stack(self, client):
-        """Test stack creation"""
+    async def test_get_swarm_id(self, client):
+        """Test getting Swarm ID"""
         # Set token
         client.token = "token123"
 
@@ -75,13 +75,74 @@ class TestPortainerClient:
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
+            "ID": "swarm123abc",
+            "Version": {"Index": 10},
+            "CreatedAt": "2024-01-01T00:00:00Z"
+        }
+
+        # Patch the _request method
+        client._request = AsyncMock(return_value=mock_response)
+
+        # Test
+        swarm_id = await client.get_swarm_id(endpoint_id=1)
+
+        # Verify
+        assert swarm_id == "swarm123abc"
+
+        client._request.assert_called_once_with(
+            "GET",
+            "/api/endpoints/1/docker/swarm",
+            headers=client._get_headers()
+        )
+
+    @pytest.mark.asyncio
+    async def test_get_swarm_id_not_found(self, client):
+        """Test Swarm ID not found"""
+        # Set token
+        client.token = "token123"
+
+        # Setup mock - response without ID field
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {}
+
+        # Patch the _request method
+        client._request = AsyncMock(return_value=mock_response)
+
+        # Test
+        with pytest.raises(PortainerError) as exc:
+            await client.get_swarm_id(endpoint_id=1)
+
+        assert "Swarm ID not found" in str(exc.value)
+
+    @pytest.mark.asyncio
+    async def test_create_stack(self, client):
+        """Test stack creation"""
+        # Set token
+        client.token = "token123"
+
+        # Setup mock for get_swarm_id
+        swarm_mock_response = Mock()
+        swarm_mock_response.status_code = 200
+        swarm_mock_response.json.return_value = {"ID": "swarm123abc"}
+
+        # Setup mock for create_stack
+        stack_mock_response = Mock()
+        stack_mock_response.status_code = 200
+        stack_mock_response.json.return_value = {
             "Id": 1,
             "Name": "test-stack",
             "Status": 1
         }
 
-        # Patch the _request method
-        client._request = AsyncMock(return_value=mock_response)
+        # Patch the _request method to return different responses
+        async def mock_request(method, path, **kwargs):
+            if "docker/swarm" in path:
+                return swarm_mock_response
+            else:
+                return stack_mock_response
+
+        client._request = AsyncMock(side_effect=mock_request)
 
         # Test
         compose_content = """
@@ -102,14 +163,20 @@ class TestPortainerClient:
         assert result["Id"] == 1
         assert result["Name"] == "test-stack"
 
-        # Check call
-        client._request.assert_called_once()
-        call_args = client._request.call_args
+        # Check calls - should be called twice (get_swarm_id + create_stack)
+        assert client._request.call_count == 2
+
+        # Check the create_stack call (second call)
+        call_args = client._request.call_args_list[1]
         assert call_args[0][0] == "POST"
-        assert call_args[0][1] == "/api/stacks"
-        assert call_args[1]["params"]["type"] == 2  # Compose stack
-        assert call_args[1]["params"]["method"] == "string"
+        assert call_args[0][1] == "/api/stacks/create/swarm/string"
         assert call_args[1]["params"]["endpointId"] == 1
+
+        # Check body includes SwarmID
+        body = call_args[1]["json"]
+        assert body["Name"] == "test-stack"
+        assert body["SwarmID"] == "swarm123abc"
+        assert "StackFileContent" in body
 
     @pytest.mark.asyncio
     async def test_get_stack(self, client):

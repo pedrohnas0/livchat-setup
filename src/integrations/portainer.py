@@ -143,6 +143,9 @@ class PortainerClient:
 
         logger.info(f"Creating stack '{name}' on endpoint {endpoint_id}")
 
+        # Get Swarm ID (REQUIRED for stack creation)
+        swarm_id = await self.get_swarm_id(endpoint_id)
+
         # Prepare environment variables
         env_list = []
         if env:
@@ -151,18 +154,15 @@ class PortainerClient:
         # Prepare request body
         body = {
             "Name": name,
+            "SwarmID": swarm_id,  # Required field for Swarm stacks
             "StackFileContent": compose,
             "Env": env_list
         }
 
         response = await self._request(
             "POST",
-            "/api/stacks",
-            params={
-                "type": 2,  # 2 = Compose stack
-                "method": "string",
-                "endpointId": endpoint_id
-            },
+            "/api/stacks/create/swarm/string",  # Correct endpoint for Swarm stacks
+            params={"endpointId": endpoint_id},
             json=body,
             headers=self._get_headers()
         )
@@ -289,6 +289,42 @@ class PortainerClient:
             raise PortainerError(f"Failed to list endpoints: {response.text}")
 
         return response.json()
+
+    async def get_swarm_id(self, endpoint_id: int) -> str:
+        """
+        Get Docker Swarm ID for an endpoint
+
+        Args:
+            endpoint_id: Endpoint ID
+
+        Returns:
+            Swarm ID string
+
+        Raises:
+            PortainerError: If Swarm ID cannot be retrieved
+        """
+        if not self.token:
+            await self.authenticate()
+
+        logger.info(f"Getting Swarm ID for endpoint {endpoint_id}")
+
+        response = await self._request(
+            "GET",
+            f"/api/endpoints/{endpoint_id}/docker/swarm",
+            headers=self._get_headers()
+        )
+
+        if response.status_code != 200:
+            raise PortainerError(f"Failed to get Swarm ID: {response.text}")
+
+        data = response.json()
+        swarm_id = data.get("ID")
+
+        if not swarm_id:
+            raise PortainerError("Swarm ID not found in response")
+
+        logger.info(f"Got Swarm ID: {swarm_id}")
+        return swarm_id
 
     async def create_endpoint(self, name: str = "primary",
                              endpoint_url: str = "tcp://tasks.agent:9001") -> Dict:

@@ -158,6 +158,111 @@ class DependencyResolver:
 
         return config
 
+    def create_dependency_resources(self, parent_app: str, dependency: str,
+                                   config: Dict[str, Any],
+                                   server_ip: str, ssh_key: str) -> Dict[str, Any]:
+        """
+        Create actual resources for a dependency (e.g., PostgreSQL database)
+
+        Args:
+            parent_app: Parent application name
+            dependency: Dependency name (e.g., "postgres")
+            config: Configuration with database, user, password
+            server_ip: Server IP address
+            ssh_key: Path to SSH key file
+
+        Returns:
+            Result dictionary with success status
+        """
+        import subprocess
+
+        logger.info(f"Creating resources for {dependency} dependency of {parent_app}")
+
+        if dependency == "postgres":
+            # Create PostgreSQL database via docker exec
+            database = config.get("database")
+            password = config.get("password")
+
+            if not database:
+                return {
+                    "success": False,
+                    "error": "Database name not specified"
+                }
+
+            try:
+                # Find postgres container name in swarm
+                find_container_cmd = [
+                    "ssh", "-i", ssh_key,
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "UserKnownHostsFile=/dev/null",
+                    f"root@{server_ip}",
+                    "docker ps --filter name=postgres --format '{{.Names}}' | head -1"
+                ]
+
+                container_result = subprocess.run(
+                    find_container_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+
+                if container_result.returncode != 0:
+                    return {
+                        "success": False,
+                        "error": f"Failed to find postgres container: {container_result.stderr}"
+                    }
+
+                container_name = container_result.stdout.strip()
+                if not container_name:
+                    return {
+                        "success": False,
+                        "error": "Postgres container not found"
+                    }
+
+                logger.info(f"Found postgres container: {container_name}")
+
+                # Create database using createdb (simpler and safer than raw SQL)
+                create_db_cmd = [
+                    "ssh", "-i", ssh_key,
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "UserKnownHostsFile=/dev/null",
+                    f"root@{server_ip}",
+                    f"docker exec {container_name} createdb -U postgres {database} || echo 'Database may already exist'"
+                ]
+
+                result = subprocess.run(
+                    create_db_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+
+                logger.info(f"Create database output: {result.stdout}")
+
+                return {
+                    "success": True,
+                    "database": database,
+                    "container": container_name,
+                    "output": result.stdout
+                }
+
+            except subprocess.TimeoutExpired:
+                return {
+                    "success": False,
+                    "error": "Command timed out"
+                }
+            except Exception as e:
+                logger.error(f"Failed to create database: {e}")
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+
+        return {
+            "success": False,
+            "error": f"Resource creation not implemented for {dependency}"
+        }
+
 
 class Orchestrator:
     """Main orchestrator for LivChat Setup system"""
@@ -905,8 +1010,76 @@ class Orchestrator:
                 self.storage.secrets.set_secret(f"portainer_password_{server_name}", portainer_password)
             config["admin_password"] = portainer_password
 
+        # Load passwords for dependencies from vault
+        # This ensures apps like N8N can connect to postgres/redis
+        app_def = self.app_registry.get_app(app_name)
+        if app_def and "dependencies" in app_def:
+            for dep in app_def["dependencies"]:
+                # Load password for each dependency (postgres, redis, etc)
+                password_key = f"{dep}_password"
+                if password_key not in config:
+                    # Try to load from vault (should have been saved when dependency was deployed)
+                    dep_password = self.storage.secrets.get_secret(password_key)
+                    if dep_password:
+                        config[password_key] = dep_password
+                        logger.debug(f"Loaded {dep} password from vault for {app_name}")
+                    else:
+                        logger.warning(f"Password for dependency '{dep}' not found in vault")
+
+        # Create dependency resources (e.g., PostgreSQL databases) before deploying app
+        if app_def and "dependencies" in app_def:
+            for dep in app_def["dependencies"]:
+                if dep == "postgres":
+                    # Determine database name based on app
+                    # This mapping should eventually come from app definitions
+                    database_mapping = {
+                        "n8n": "n8n_queue",
+                        "chatwoot": "chatwoot_production",
+                        "grafana": "grafana",
+                        "nocodb": "nocodb"
+                    }
+
+                    database_name = database_mapping.get(app_name)
+                    if database_name:
+                        logger.info(f"Creating PostgreSQL database '{database_name}' for {app_name}")
+
+                        # Get server connection info
+                        server_ip = server.get("ip")
+                        ssh_key_name = server.get("ssh_key", f"{server_name}_key")
+                        ssh_key_path = str(self.ssh_manager.get_private_key_path(ssh_key_name))
+
+                        # Get postgres password
+                        postgres_password = config.get("postgres_password")
+
+                        # Create database
+                        db_result = self.resolver.create_dependency_resources(
+                            parent_app=app_name,
+                            dependency="postgres",
+                            config={
+                                "database": database_name,
+                                "password": postgres_password
+                            },
+                            server_ip=server_ip,
+                            ssh_key=ssh_key_path
+                        )
+
+                        if db_result.get("success"):
+                            logger.info(f"✅ Database '{database_name}' created successfully")
+                        else:
+                            logger.warning(f"⚠️ Failed to create database: {db_result.get('error')}")
+                            # Continue anyway - database might already exist
+
         # Deploy the app
         result = await self.app_deployer.deploy(server, app_name, config)
+
+        # Save generated passwords to vault for dependency apps
+        # This allows dependent apps (like N8N) to retrieve these passwords later
+        if result.get("success"):
+            if app_name in ["postgres", "redis"]:
+                password_key = f"{app_name}_password"
+                if password_key in config:
+                    self.storage.secrets.set_secret(password_key, config[password_key])
+                    logger.info(f"Saved {app_name} password to vault for future use by dependent apps")
 
         # Configure DNS if successful and Cloudflare is configured
         if result.get("success") and self.cloudflare:
