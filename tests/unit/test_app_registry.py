@@ -354,3 +354,166 @@ name: incomplete
         # Try to load
         with pytest.raises(ValueError, match="Missing required fields"):
             app_registry.load_definition(str(app_file))
+
+    def test_generate_compose_with_template_and_labels(self, app_registry, tmp_path):
+        """
+        TDD Test: Verify compose_template with Traefik labels inside deploy section
+        This follows the SetupOrion pattern with 3 N8N services (editor, webhook, worker)
+        """
+        # Create app YAML following SetupOrion pattern with 3 services
+        app_yaml = """
+name: n8n
+category: automation
+version: "1.25.1"
+description: Workflow automation platform
+deploy_method: portainer
+dependencies:
+  - postgres
+  - redis
+dns_prefix: edt
+
+compose_template: |
+  version: '3.8'
+  services:
+    n8n_editor:
+      image: n8nio/n8n:latest
+      command: start
+      environment:
+        DB_TYPE: postgresdb
+        DB_POSTGRESDB_HOST: postgres
+        DB_POSTGRESDB_DATABASE: n8n_queue
+        DB_POSTGRESDB_PASSWORD: "{{ vault.postgres_password }}"
+        EXECUTIONS_MODE: queue
+        QUEUE_BULL_REDIS_HOST: redis
+        N8N_PROTOCOL: https
+        N8N_HOST: "edt.{{ domain }}"
+        WEBHOOK_URL: "https://whk.{{ domain }}/"
+      deploy:
+        labels:
+          - "traefik.enable=true"
+          - "traefik.http.routers.n8n_editor.rule=Host(`edt.{{ domain }}`)"
+          - "traefik.http.routers.n8n_editor.entrypoints=websecure"
+          - "traefik.http.routers.n8n_editor.tls.certresolver=letsencrypt"
+          - "traefik.http.services.n8n_editor.loadbalancer.server.port=5678"
+      networks:
+        - livchat_network
+
+    n8n_webhook:
+      image: n8nio/n8n:latest
+      command: webhook
+      environment:
+        DB_TYPE: postgresdb
+        DB_POSTGRESDB_HOST: postgres
+        DB_POSTGRESDB_DATABASE: n8n_queue
+        DB_POSTGRESDB_PASSWORD: "{{ vault.postgres_password }}"
+        EXECUTIONS_MODE: queue
+        QUEUE_BULL_REDIS_HOST: redis
+        N8N_PROTOCOL: https
+        WEBHOOK_URL: "https://whk.{{ domain }}/"
+      deploy:
+        labels:
+          - "traefik.enable=true"
+          - "traefik.http.routers.n8n_webhook.rule=Host(`whk.{{ domain }}`)"
+          - "traefik.http.routers.n8n_webhook.entrypoints=websecure"
+          - "traefik.http.routers.n8n_webhook.tls.certresolver=letsencrypt"
+          - "traefik.http.services.n8n_webhook.loadbalancer.server.port=5678"
+      networks:
+        - livchat_network
+
+    n8n_worker:
+      image: n8nio/n8n:latest
+      command: worker --concurrency=10
+      environment:
+        DB_TYPE: postgresdb
+        DB_POSTGRESDB_HOST: postgres
+        DB_POSTGRESDB_DATABASE: n8n_queue
+        DB_POSTGRESDB_PASSWORD: "{{ vault.postgres_password }}"
+        EXECUTIONS_MODE: queue
+        QUEUE_BULL_REDIS_HOST: redis
+      networks:
+        - livchat_network
+
+  volumes:
+    n8n_data:
+      external: true
+      name: n8n_data
+
+  networks:
+    livchat_network:
+      external: true
+      name: livchat_network
+"""
+        # Load app
+        app_file = tmp_path / "n8n.yaml"
+        app_file.write_text(app_yaml)
+        app_registry.load_definition(str(app_file))
+
+        # Generate compose with config
+        config = {
+            "postgres_password": "test_postgres_pass123",
+            "domain": "lab.livchat.ai"
+        }
+        compose = app_registry.generate_compose("n8n", config)
+
+        # Parse generated compose
+        compose_data = yaml.safe_load(compose)
+
+        # Verify structure
+        assert "services" in compose_data
+
+        # Verify 3 N8N services exist (SetupOrion pattern)
+        assert "n8n_editor" in compose_data["services"]
+        assert "n8n_webhook" in compose_data["services"]
+        assert "n8n_worker" in compose_data["services"]
+
+        editor = compose_data["services"]["n8n_editor"]
+        webhook = compose_data["services"]["n8n_webhook"]
+        worker = compose_data["services"]["n8n_worker"]
+
+        # Verify commands
+        assert editor["command"] == "start"
+        assert webhook["command"] == "webhook"
+        assert worker["command"] == "worker --concurrency=10"
+
+        # Verify environment variables were substituted in editor
+        assert editor["environment"]["DB_POSTGRESDB_PASSWORD"] == "test_postgres_pass123"
+        assert editor["environment"]["N8N_HOST"] == "edt.lab.livchat.ai"
+        assert editor["environment"]["WEBHOOK_URL"] == "https://whk.lab.livchat.ai/"
+        assert editor["environment"]["N8N_PROTOCOL"] == "https"
+
+        # Verify webhook environment
+        assert webhook["environment"]["DB_POSTGRESDB_PASSWORD"] == "test_postgres_pass123"
+        assert webhook["environment"]["WEBHOOK_URL"] == "https://whk.lab.livchat.ai/"
+
+        # Verify worker environment
+        assert worker["environment"]["DB_POSTGRESDB_PASSWORD"] == "test_postgres_pass123"
+        assert worker["environment"]["EXECUTIONS_MODE"] == "queue"
+
+        # Verify Traefik labels on editor
+        assert "deploy" in editor
+        assert "labels" in editor["deploy"]
+        editor_labels = editor["deploy"]["labels"]
+        assert "traefik.enable=true" in editor_labels
+        assert "traefik.http.routers.n8n_editor.rule=Host(`edt.lab.livchat.ai`)" in editor_labels
+        assert "traefik.http.routers.n8n_editor.entrypoints=websecure" in editor_labels
+
+        # Verify Traefik labels on webhook
+        assert "deploy" in webhook
+        assert "labels" in webhook["deploy"]
+        webhook_labels = webhook["deploy"]["labels"]
+        assert "traefik.enable=true" in webhook_labels
+        assert "traefik.http.routers.n8n_webhook.rule=Host(`whk.lab.livchat.ai`)" in webhook_labels
+        assert "traefik.http.routers.n8n_webhook.entrypoints=websecure" in webhook_labels
+
+        # Verify worker has no Traefik labels (backend only)
+        # Worker may or may not have deploy section, but should not have Traefik labels
+
+        # Verify volumes section
+        assert "volumes" in compose_data
+        assert "n8n_data" in compose_data["volumes"]
+        assert compose_data["volumes"]["n8n_data"]["external"] is True
+
+        # Verify networks section
+        assert "networks" in compose_data
+        assert "livchat_network" in compose_data["networks"]
+        assert compose_data["networks"]["livchat_network"]["external"] is True
