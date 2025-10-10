@@ -342,6 +342,32 @@ class StateStore:
 
         return deployments
 
+    def save_jobs(self, jobs: List[Dict[str, Any]]) -> None:
+        """
+        Save jobs to state
+
+        Args:
+            jobs: List of job dictionaries
+        """
+        if not self._state:
+            self.load()
+
+        self._state["jobs"] = jobs
+        self.save()
+        logger.debug(f"Saved {len(jobs)} jobs to state")
+
+    def load_jobs(self) -> List[Dict[str, Any]]:
+        """
+        Load jobs from state
+
+        Returns:
+            List of job dictionaries
+        """
+        if not self._state:
+            self.load()
+
+        return self._state.get("jobs", [])
+
 
 class SecretsStore:
     """Manages encrypted secrets using Ansible Vault"""
