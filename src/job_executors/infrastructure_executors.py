@@ -57,7 +57,7 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
             "environment": environment,
         }
         if domain:
-            config["domain"] = domain
+            config["dns_domain"] = domain  # Translate 'domain' → 'dns_domain' for internal use
 
         # Call orchestrator's dedicated Portainer deployment method
         # This method is SYNCHRONOUS but we're in an ASYNC context

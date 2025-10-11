@@ -48,7 +48,7 @@ class TestAPIE2EWorkflow:
         'region': 'ash',                 # Ashburn
         'os_image': 'debian-12',
         'test_domain': 'livchat.ai',
-        'test_subdomain': 'api-test'
+        'test_subdomain': 'lab'          # Using 'lab' subdomain
     }
 
     MAX_JOB_WAIT_TIME = 600  # 10 minutes max per job
@@ -214,13 +214,14 @@ class TestAPIE2EWorkflow:
 
         server_created = False
         server_setup = False
+        dns_configured = False
         apps_deployed = []
 
         try:
             # ===========================================
             # STEP 1: Configure Provider via API
             # ===========================================
-            print(f"\n🔐 [STEP 1/7] Configuring Hetzner provider via API...")
+            print(f"\n🔐 [STEP 1/8] Configuring Hetzner provider via API...")
 
             # Get token from environment or secrets
             hetzner_token = os.environ.get("HETZNER_TOKEN")
@@ -266,7 +267,7 @@ class TestAPIE2EWorkflow:
             # ===========================================
             # STEP 2: Create Server via API
             # ===========================================
-            print(f"\n🖥️  [STEP 2/7] Creating server via API...")
+            print(f"\n🖥️  [STEP 2/8] Creating server via API...")
 
             # Check if server already exists
             response = api_client.get(f"/api/servers/{server_name}")
@@ -318,7 +319,7 @@ class TestAPIE2EWorkflow:
             # ===========================================
             # STEP 3: Setup Server via API
             # ===========================================
-            print(f"\n🔧 [STEP 3/7] Setting up server infrastructure via API...")
+            print(f"\n🔧 [STEP 3/8] Setting up server infrastructure via API...")
             print(f"   This will install Docker, Swarm, Traefik...")
 
             response = api_client.post(
@@ -347,17 +348,63 @@ class TestAPIE2EWorkflow:
             print(f"✅ Server setup completed successfully!")
 
             # ===========================================
+            # STEP 3.25: Configure DNS via Cloudflare (if available)
+            # ===========================================
+            zone_name = config['test_domain']  # "livchat.ai"
+            subdomain = config['test_subdomain']  # "api-test"
+
+            if cloudflare_email and cloudflare_key:
+                print(f"\n🌐 [STEP 3.25/8] Configuring DNS via Cloudflare...")
+                print(f"   Zone: {zone_name}")
+                print(f"   Subdomain: {subdomain}")
+                print(f"   IP: {server_data.get('ip')}")
+
+                # Note: API doesn't have direct DNS endpoint yet
+                # We need to use orchestrator directly for this
+                from src.api.dependencies import get_orchestrator
+                orch = get_orchestrator()
+
+                # Setup DNS
+                import asyncio
+                dns_result = asyncio.run(orch.setup_dns_for_server(
+                    server_name=server_name,
+                    zone_name=zone_name,
+                    subdomain=subdomain
+                ))
+
+                if dns_result.get('success'):
+                    dns_configured = True
+                    print(f"✅ DNS configured successfully!")
+                    print(f"   Records created:")
+                    print(f"     - ptn.{subdomain}.{zone_name} → {server_data.get('ip')}")
+                    print(f"     - edt.{subdomain}.{zone_name} → {server_data.get('ip')}")
+                    print(f"\n⏳ Waiting 10s for DNS propagation...")
+                    time.sleep(10)
+                else:
+                    print(f"⚠️ DNS configuration failed: {dns_result.get('error')}")
+            else:
+                print(f"\n⏭️ [STEP 3.25/8] Skipping DNS (Cloudflare not configured)")
+
+            # ===========================================
             # STEP 3.5: Deploy Portainer via API (CRITICAL!)
             # ===========================================
-            print(f"\n🐳 [STEP 3.5/7] Deploying Portainer via API...")
+            print(f"\n🐳 [STEP 3.5/8] Deploying Portainer via API...")
             print(f"   Portainer is REQUIRED for deploying applications...")
+
+            portainer_config = {
+                "server_name": server_name,
+                "environment": {}
+            }
+
+            # Add domain if DNS is configured
+            if dns_configured:
+                portainer_domain = f"ptn.{subdomain}.{zone_name}"
+                portainer_config["domain"] = portainer_domain
+                print(f"   Using domain: {portainer_domain}")
 
             response = api_client.post(
                 "/api/apps/portainer/deploy",
-                json={
-                    "server_name": server_name,
-                    "environment": {}
-                }
+                json=portainer_config
             )
 
             assert response.status_code == 202, f"Failed to start Portainer deployment: {response.text}"
@@ -382,7 +429,7 @@ class TestAPIE2EWorkflow:
             # ===========================================
             # STEP 4: List Available Apps via API
             # ===========================================
-            print(f"\n📦 [STEP 4/7] Listing available apps via API...")
+            print(f"\n📦 [STEP 4/8] Listing available apps via API...")
 
             response = api_client.get("/api/apps")
             assert response.status_code == 200, "Failed to list apps"
@@ -394,7 +441,7 @@ class TestAPIE2EWorkflow:
             # ===========================================
             # STEP 5: Deploy PostgreSQL via API
             # ===========================================
-            print(f"\n🐘 [STEP 5/7] Deploying PostgreSQL via API...")
+            print(f"\n🐘 [STEP 5/8] Deploying PostgreSQL via API...")
 
             response = api_client.post(
                 "/api/apps/postgres/deploy",
@@ -426,7 +473,7 @@ class TestAPIE2EWorkflow:
             # ===========================================
             # STEP 6: Deploy Redis via API
             # ===========================================
-            print(f"\n🔴 [STEP 6/7] Deploying Redis via API...")
+            print(f"\n🔴 [STEP 6/8] Deploying Redis via API...")
 
             response = api_client.post(
                 "/api/apps/redis/deploy",
@@ -456,9 +503,56 @@ class TestAPIE2EWorkflow:
                 print(f"⚠️ Redis deployment skipped: {response.status_code}")
 
             # ===========================================
+            # STEP 6.5: Deploy N8N via API
+            # ===========================================
+            print(f"\n🔄 [STEP 6.5/8] Deploying N8N workflow automation via API...")
+            print(f"   Dependencies: PostgreSQL, Redis")
+
+            n8n_config = {
+                "server_name": server_name,
+                "environment": {
+                    "N8N_BASIC_AUTH_USER": "admin",
+                    "N8N_BASIC_AUTH_PASSWORD": "n8npass123"
+                }
+            }
+
+            # Add domain if DNS is configured
+            if dns_configured:
+                n8n_domain = f"edt.{subdomain}.{zone_name}"
+                n8n_config["domain"] = n8n_domain
+                print(f"   Using domain: {n8n_domain}")
+
+            response = api_client.post(
+                "/api/apps/n8n/deploy",
+                json=n8n_config
+            )
+
+            if response.status_code == 202:
+                deploy_data = response.json()
+                job_id = deploy_data["job_id"]
+                print(f"✅ N8N deployment job started: {job_id}")
+
+                # Monitor deployment
+                try:
+                    job_result = self.poll_job_until_complete(
+                        api_client,
+                        job_id,
+                        "N8N deployment"
+                    )
+                    apps_deployed.append("n8n")
+                    print(f"✅ N8N deployed successfully!")
+                    if dns_configured:
+                        print(f"   URL: https://{n8n_domain}")
+                    print(f"   Credentials: admin / n8npass123")
+                except AssertionError as e:
+                    print(f"⚠️ N8N deployment failed: {e}")
+            else:
+                print(f"⚠️ N8N deployment skipped: {response.status_code}")
+
+            # ===========================================
             # STEP 7: Verify Final State via API
             # ===========================================
-            print(f"\n🔍 [STEP 7/7] Verifying final state via API...")
+            print(f"\n🔍 [STEP 7/8] Verifying final state via API...")
 
             # Get server details
             response = api_client.get(f"/api/servers/{server_name}")
@@ -554,6 +648,9 @@ class TestAPIE2EWorkflow:
             assert "portainer" in apps_deployed, "Portainer must be deployed (required for app deployments)"
             assert "postgres" in apps_deployed, "PostgreSQL must be deployed successfully"
             assert "redis" in apps_deployed, "Redis must be deployed successfully"
+            # N8N is optional (requires DNS)
+            if dns_configured:
+                assert "n8n" in apps_deployed, "N8N must be deployed when DNS is configured"
 
             print(f"\n🎉 E2E API TEST PASSED!")
             print(f"{'='*80}")
