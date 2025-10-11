@@ -250,10 +250,36 @@ class AppRegistry:
             config["redis_password"] = redis_password
             logger.info(f"Generated Redis password for deployment (alphanumeric only)")
 
+        # Generate N8N encryption key if not provided
+        # Required for N8N to encrypt sensitive data
+        if app_name == "n8n" and "encryption_key" not in config:
+            import secrets
+            import string
+            alphabet = string.ascii_letters + string.digits
+            encryption_key = ''.join(secrets.choice(alphabet) for _ in range(32))
+            config["encryption_key"] = encryption_key
+            logger.info(f"Generated N8N encryption key for deployment")
+
+        # Generate webhook_domain from domain if not provided (for N8N)
+        if app_name == "n8n" and "webhook_domain" not in config and "domain" in config:
+            domain = config["domain"]
+            # Extract subdomain and zone from domain (e.g., "edt.lab.livchat.ai" -> "whk.lab.livchat.ai")
+            parts = domain.split(".", 1)
+            if len(parts) == 2:
+                # Replace "edt" prefix with "whk" prefix
+                config["webhook_domain"] = f"whk.{parts[1]}"
+                logger.info(f"Generated webhook_domain from domain: {config['webhook_domain']}")
+            else:
+                # Fallback: same as domain
+                config["webhook_domain"] = domain
+
         # If app has compose_template, use it (more complete definition)
         if "compose_template" in app:
             # Use the compose template from the YAML
             compose_str = app["compose_template"]
+
+            # Log config keys for debugging template substitution
+            logger.debug(f"Generating compose for {app_name} with config keys: {list(config.keys())}")
 
             # Replace template variables with actual values
             if "{{" in compose_str:

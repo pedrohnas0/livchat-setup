@@ -1,70 +1,14 @@
 name: n8n
 category: automation
 version: "1.25.1"
-description: Workflow automation platform
+description: Workflow automation platform (SetupOrion pattern)
 
 # Method determines deployment flow
 deploy_method: portainer
 
-ports:
-  - "5678:5678"
-
-volumes:
-  - n8n_data:/home/node/.n8n
-  - n8n_files:/files
-
-environment:
-  DB_TYPE: postgresdb
-  DB_POSTGRESDB_HOST: postgres
-  DB_POSTGRESDB_PORT: 5432
-  DB_POSTGRESDB_DATABASE: n8n_queue
-  DB_POSTGRESDB_USER: postgres
-  DB_POSTGRESDB_PASSWORD: "{{ vault.postgres_password }}"
-
-  EXECUTIONS_MODE: queue
-  QUEUE_BULL_REDIS_HOST: redis
-  QUEUE_BULL_REDIS_PORT: 6379
-  QUEUE_BULL_REDIS_PASSWORD: "{{ vault.redis_password }}"
-  QUEUE_BULL_REDIS_DB: 1
-
-  N8N_BASIC_AUTH_ACTIVE: "true"
-  N8N_BASIC_AUTH_USER: "{{ admin_email }}"
-  N8N_BASIC_AUTH_PASSWORD: "{{ vault.n8n_password }}"
-
-  N8N_HOST: "edt.{{ domain }}"
-  N8N_PORT: 5678
-  N8N_PROTOCOL: https
-  WEBHOOK_URL: "https://whk.{{ domain }}/"
-
-  N8N_EMAIL_MODE: smtp
-  N8N_SMTP_HOST: "{{ smtp_host }}"
-  N8N_SMTP_PORT: "{{ smtp_port }}"
-  N8N_SMTP_USER: "{{ smtp_user }}"
-  N8N_SMTP_PASS: "{{ smtp_password }}"
-  N8N_SMTP_SENDER: "{{ smtp_sender }}"
-
-deploy:
-  mode: replicated
-  replicas: 1
-  placement:
-    constraints:
-      - node.role == manager
-  resources:
-    limits:
-      memory: 2G
-    reservations:
-      memory: 512M
-
-health_check:
-  endpoint: http://localhost:5678/healthz
-  interval: 30s
-  timeout: 10s
-  retries: 3
-  start_period: 60s
-
 dependencies:
   - postgres
-  - redis
+  - redis  # N8N uses global Redis service
 
 dns_prefix: edt
 
@@ -72,55 +16,31 @@ additional_dns:
   - prefix: whk
     comment: n8n webhook endpoint
 
-labels:
-  - "traefik.enable=true"
-  # Editor interface
-  - "traefik.http.routers.n8n.rule=Host(`edt.{{ domain }}`)"
-  - "traefik.http.routers.n8n.entrypoints=websecure"
-  - "traefik.http.routers.n8n.tls.certresolver=letsencrypt"
-  - "traefik.http.services.n8n.loadbalancer.server.port=5678"
-  # Webhook interface
-  - "traefik.http.routers.n8n-webhook.rule=Host(`whk.{{ domain }}`)"
-  - "traefik.http.routers.n8n-webhook.entrypoints=websecure"
-  - "traefik.http.routers.n8n-webhook.tls.certresolver=letsencrypt"
-  - "traefik.http.services.n8n-webhook.loadbalancer.server.port=5678"
-
-network: livchat_network
-
-post_deploy:
-  - action: wait_health
-    timeout: 120
-  - action: wait_dependencies
-    services:
-      - postgres
-      - redis
-
-# Docker Compose Stack section (for portainer deployment)
+# Docker Compose Stack following SetupOrion pattern (3 N8N services)
 compose_template: |
   version: '3.8'
   services:
-    n8n:
+    n8n_editor:
       image: n8nio/n8n:latest
-      ports:
-        - "5678:5678"
-      volumes:
-        - n8n_data:/home/node/.n8n
-        - n8n_files:/files
+      command: start
       environment:
-        DB_TYPE: postgresdb
-        DB_POSTGRESDB_HOST: postgres
-        DB_POSTGRESDB_PORT: 5432
-        DB_POSTGRESDB_DATABASE: n8n_queue
-        DB_POSTGRESDB_USER: postgres
-        DB_POSTGRESDB_PASSWORD: "{{ vault.postgres_password }}"
-        EXECUTIONS_MODE: queue
-        QUEUE_BULL_REDIS_HOST: redis
-        QUEUE_BULL_REDIS_PORT: 6379
-        QUEUE_BULL_REDIS_DB: 1
-        N8N_BASIC_AUTH_ACTIVE: "false"
-        N8N_PORT: 5678
-        N8N_PROTOCOL: http
-        TZ: America/Sao_Paulo
+        - DB_TYPE=postgresdb
+        - DB_POSTGRESDB_DATABASE=n8n_queue
+        - DB_POSTGRESDB_HOST=postgres
+        - DB_POSTGRESDB_PORT=5432
+        - DB_POSTGRESDB_USER=postgres
+        - DB_POSTGRESDB_PASSWORD={{ vault.postgres_password }}
+        - EXECUTIONS_MODE=queue
+        - QUEUE_BULL_REDIS_HOST=redis
+        - QUEUE_BULL_REDIS_PORT=6379
+        - QUEUE_BULL_REDIS_DB=1
+        - N8N_ENCRYPTION_KEY={{ encryption_key }}
+        - N8N_HOST={{ domain }}
+        - N8N_EDITOR_BASE_URL=https://{{ domain }}/
+        - WEBHOOK_URL=https://{{ webhook_domain }}/
+        - N8N_PROTOCOL=https
+        - N8N_PORT=5678
+        - TZ=America/Sao_Paulo
       deploy:
         mode: replicated
         replicas: 1
@@ -132,22 +52,91 @@ compose_template: |
             memory: 2G
           reservations:
             memory: 512M
-      healthcheck:
-        test: ["CMD", "wget", "--spider", "-q", "http://localhost:5678"]
-        interval: 30s
-        timeout: 10s
-        retries: 3
-        start_period: 60s
+        labels:
+          - "traefik.enable=true"
+          - "traefik.http.routers.n8n_editor.rule=Host(`{{ domain }}`)"
+          - "traefik.http.routers.n8n_editor.entrypoints=websecure"
+          - "traefik.http.routers.n8n_editor.priority=1"
+          - "traefik.http.routers.n8n_editor.tls.certresolver=letsencrypt"
+          - "traefik.http.routers.n8n_editor.service=n8n_editor"
+          - "traefik.http.services.n8n_editor.loadbalancer.server.port=5678"
+          - "traefik.http.services.n8n_editor.loadbalancer.passHostHeader=true"
       networks:
         - livchat_network
 
-  volumes:
-    n8n_data:
-      external: true
-      name: n8n_data
-    n8n_files:
-      external: true
-      name: n8n_files
+    n8n_webhook:
+      image: n8nio/n8n:latest
+      command: webhook
+      environment:
+        - DB_TYPE=postgresdb
+        - DB_POSTGRESDB_DATABASE=n8n_queue
+        - DB_POSTGRESDB_HOST=postgres
+        - DB_POSTGRESDB_PORT=5432
+        - DB_POSTGRESDB_USER=postgres
+        - DB_POSTGRESDB_PASSWORD={{ vault.postgres_password }}
+        - EXECUTIONS_MODE=queue
+        - QUEUE_BULL_REDIS_HOST=redis
+        - QUEUE_BULL_REDIS_PORT=6379
+        - QUEUE_BULL_REDIS_DB=1
+        - N8N_ENCRYPTION_KEY={{ encryption_key }}
+        - WEBHOOK_URL=https://{{ webhook_domain }}/
+        - N8N_PROTOCOL=https
+        - N8N_PORT=5678
+        - TZ=America/Sao_Paulo
+      deploy:
+        mode: replicated
+        replicas: 1
+        placement:
+          constraints:
+            - node.role == manager
+        resources:
+          limits:
+            memory: 1G
+          reservations:
+            memory: 256M
+        labels:
+          - "traefik.enable=true"
+          - "traefik.http.routers.n8n_webhook.rule=(Host(`{{ webhook_domain }}`) && PathPrefix(`/webhook`))"
+          - "traefik.http.routers.n8n_webhook.entrypoints=websecure"
+          - "traefik.http.routers.n8n_webhook.priority=1"
+          - "traefik.http.routers.n8n_webhook.tls.certresolver=letsencrypt"
+          - "traefik.http.routers.n8n_webhook.service=n8n_webhook"
+          - "traefik.http.services.n8n_webhook.loadbalancer.server.port=5678"
+          - "traefik.http.services.n8n_webhook.loadbalancer.passHostHeader=true"
+      networks:
+        - livchat_network
+
+    n8n_worker:
+      image: n8nio/n8n:latest
+      command: worker --concurrency=10
+      environment:
+        - DB_TYPE=postgresdb
+        - DB_POSTGRESDB_DATABASE=n8n_queue
+        - DB_POSTGRESDB_HOST=postgres
+        - DB_POSTGRESDB_PORT=5432
+        - DB_POSTGRESDB_USER=postgres
+        - DB_POSTGRESDB_PASSWORD={{ vault.postgres_password }}
+        - EXECUTIONS_MODE=queue
+        - QUEUE_BULL_REDIS_HOST=redis
+        - QUEUE_BULL_REDIS_PORT=6379
+        - QUEUE_BULL_REDIS_DB=1
+        - N8N_ENCRYPTION_KEY={{ encryption_key }}
+        - WEBHOOK_URL=https://{{ webhook_domain }}/
+        - N8N_PROTOCOL=https
+        - TZ=America/Sao_Paulo
+      deploy:
+        mode: replicated
+        replicas: 1
+        placement:
+          constraints:
+            - node.role == manager
+        resources:
+          limits:
+            memory: 2G
+          reservations:
+            memory: 512M
+      networks:
+        - livchat_network
 
   networks:
     livchat_network:

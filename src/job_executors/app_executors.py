@@ -46,7 +46,7 @@ async def execute_deploy_app(job: Job, orchestrator: Orchestrator) -> Dict[str, 
         "environment": environment,
     }
     if domain:
-        config["dns_domain"] = domain  # Translate 'domain' → 'dns_domain' for internal use
+        config["domain"] = domain  # Pass domain directly for template substitution
 
     result = await orchestrator.deploy_app(
         server_name=server_name,
