@@ -10,6 +10,7 @@ Usage:
     app = FastAPI(lifespan=lifespan)
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
@@ -25,6 +26,34 @@ logger = logging.getLogger(__name__)
 _executor: JobExecutor | None = None
 
 
+async def log_cleanup_loop(job_manager):
+    """
+    Background task to cleanup old log files periodically
+
+    Runs every hour and removes log files older than 72 hours.
+
+    Args:
+        job_manager: JobManager instance with log_manager
+    """
+    while True:
+        try:
+            # Sleep for 1 hour
+            await asyncio.sleep(3600)
+
+            # Cleanup logs older than 72 hours
+            removed = job_manager.log_manager.cleanup_old_logs(max_age_hours=72)
+
+            if removed > 0:
+                logger.info(f"Cleaned up {removed} old log files (>72h)")
+
+        except asyncio.CancelledError:
+            logger.info("Log cleanup task cancelled")
+            break
+
+        except Exception as e:
+            logger.error(f"Error in log cleanup: {e}", exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
@@ -33,9 +62,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     Startup:
     - Initialize JobExecutor
     - Start background job processing
+    - Start log cleanup task
 
     Shutdown:
     - Stop JobExecutor gracefully
+    - Cancel log cleanup task
     - Wait for running jobs to complete
 
     Args:
@@ -59,8 +90,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Create and start JobExecutor
         _executor = JobExecutor(job_manager, orchestrator)
         await _executor.start()
-
         logger.info("✅ JobExecutor started successfully")
+
+        # Start log cleanup background task
+        cleanup_task = asyncio.create_task(log_cleanup_loop(job_manager))
+        logger.info("✅ Log cleanup task started")
+
         logger.info("✅ LivChat Setup API ready!")
 
     except Exception as e:
@@ -78,6 +113,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("🛑 Shutting down LivChat Setup API...")
 
     try:
+        # Cancel cleanup task
+        cleanup_task.cancel()
+        try:
+            await cleanup_task
+        except asyncio.CancelledError:
+            pass
+
+        # Stop executor
         if _executor:
             logger.info("Stopping JobExecutor...")
             await _executor.stop()

@@ -109,6 +109,7 @@ async def get_job(
     Get specific job by ID
 
     Returns complete job information including status, progress, logs, and results.
+    Includes recent logs from memory (last 50 entries) for quick access.
 
     Raises:
     - 404: Job not found
@@ -121,7 +122,73 @@ async def get_job(
             detail=f"Job {job_id} not found"
         )
 
-    return JobResponse(**_job_to_response(job))
+    # Get job response
+    response = _job_to_response(job)
+
+    # Add recent logs from memory (fast, no disk I/O)
+    recent_logs = job_manager.log_manager.get_recent_logs(job_id, limit=50)
+
+    # Merge recent logs with deprecated logs field
+    # Recent logs take precedence as they're fresher
+    if recent_logs:
+        response["logs"] = recent_logs
+
+    return JobResponse(**response)
+
+
+@router.get("/{job_id}/logs")
+async def get_job_logs(
+    job_id: str,
+    tail: int = Query(100, ge=1, le=10000, description="Last N lines to retrieve"),
+    level: Optional[str] = Query(None, regex="^(DEBUG|INFO|WARNING|ERROR)$", description="Filter by log level"),
+    job_manager: JobManager = Depends(get_job_manager)
+):
+    """
+    Get detailed logs for a job
+
+    Reads from log file on disk. Supports filtering and tailing.
+
+    Query parameters:
+    - tail: Get last N lines (default: 100, max: 10000)
+    - level: Filter by log level (DEBUG, INFO, WARNING, ERROR)
+
+    Example:
+        GET /api/jobs/setup_server-abc123/logs?tail=500&level=ERROR
+
+    Returns:
+        - job_id: Job identifier
+        - total_lines: Number of lines returned
+        - logs: List of log lines (strings)
+        - log_file: Path to full log file
+
+    Raises:
+    - 404: Job not found
+    """
+    job = job_manager.get_job(job_id)
+
+    if not job:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Job {job_id} not found"
+        )
+
+    # Read logs from file
+    logs = job_manager.log_manager.read_log_file(
+        job_id,
+        tail=tail,
+        level_filter=level
+    )
+
+    return {
+        "job_id": job_id,
+        "total_lines": len(logs),
+        "logs": logs,
+        "log_file": job.log_file,
+        "filters": {
+            "tail": tail,
+            "level": level
+        }
+    }
 
 
 @router.post("/{job_id}/cancel", response_model=JobCancelResponse)

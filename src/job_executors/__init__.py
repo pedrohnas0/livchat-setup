@@ -35,6 +35,9 @@ from .app_executors import (
     execute_deploy_app,
     execute_undeploy_app,
 )
+from .infrastructure_executors import (
+    execute_deploy_infrastructure,
+)
 
 # Executor Registry - Maps job_type to executor function
 EXECUTOR_REGISTRY: Dict[str, Callable[[Any, Any], Awaitable[Any]]] = {
@@ -46,4 +49,7 @@ EXECUTOR_REGISTRY: Dict[str, Callable[[Any, Any], Awaitable[Any]]] = {
     # App operations
     "deploy_app": execute_deploy_app,
     "undeploy_app": execute_undeploy_app,
+
+    # Infrastructure operations
+    "deploy_infrastructure": execute_deploy_infrastructure,
 }

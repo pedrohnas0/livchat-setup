@@ -185,10 +185,23 @@ async def deploy_app(
             detail=f"Server '{request.server_name}' not found"
         )
 
+    # Determine job type based on deploy_method
+    # Infrastructure apps (deploy_method: ansible) use different executor
+    deploy_method = app.get("deploy_method", "portainer")
+
+    if deploy_method == "ansible":
+        # Infrastructure apps (Portainer, Traefik) deployed via Ansible
+        job_type = "deploy_infrastructure"
+        logger.info(f"{name} uses ansible deployment method, creating infrastructure job")
+    else:
+        # Standard apps (PostgreSQL, Redis, N8N) deployed via Portainer API
+        job_type = "deploy_app"
+        logger.info(f"{name} uses portainer deployment method, creating app job")
+
     try:
-        # Create job for app deployment
+        # Create job with appropriate type
         job = job_manager.create_job(
-            job_type="deploy_app",
+            job_type=job_type,
             params={
                 "app_name": name,
                 "server_name": request.server_name,
@@ -197,7 +210,7 @@ async def deploy_app(
             }
         )
 
-        logger.info(f"Created job {job.job_id} for deploying {name} to {request.server_name}")
+        logger.info(f"Created job {job.job_id} ({job_type}) for deploying {name} to {request.server_name}")
 
         # TODO: Start background task to execute job
 

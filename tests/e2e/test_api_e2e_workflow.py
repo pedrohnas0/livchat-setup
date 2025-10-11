@@ -82,21 +82,29 @@ class TestAPIE2EWorkflow:
         self,
         client: TestClient,
         job_id: str,
-        job_description: str = "Job"
+        job_description: str = "Job",
+        validate_result: bool = True
     ) -> Dict:
         """
         Poll job endpoint until completion or failure
+
+        Args:
+            client: FastAPI test client
+            job_id: Job identifier
+            job_description: Human-readable job description
+            validate_result: If True, checks result.success field (default: True)
 
         Returns:
             Final job data
 
         Raises:
-            AssertionError: If job fails or times out
+            AssertionError: If job fails, times out, or result.success is False
         """
         print(f"\n⏳ Monitoring {job_description} (ID: {job_id})...")
 
         start_time = time.time()
         last_progress = -1
+        log_sample_shown = False
 
         while True:
             # Check timeout
@@ -114,21 +122,70 @@ class TestAPIE2EWorkflow:
             status = job_data.get("status")
             progress = job_data.get("progress", 0)
             current_step = job_data.get("current_step", "")
+            logs = job_data.get("logs", [])
 
             # Show progress updates
             if progress != last_progress:
                 print(f"   [{int(elapsed)}s] {progress}% - {current_step}")
+
+                # Show log sample once during execution (NEW: Observability validation)
+                if not log_sample_shown and len(logs) > 0 and progress > 20:
+                    print(f"   📋 Recent logs sample ({len(logs)} entries):")
+                    for log in logs[-3:]:  # Show last 3 logs
+                        print(f"      [{log.get('level', 'INFO')}] {log.get('message', '')}")
+                    log_sample_shown = True
+
                 last_progress = progress
 
             # Check if completed
             if status == "completed":
-                print(f"✅ {job_description} completed in {int(elapsed)}s")
+                print(f"✅ {job_description} job completed in {int(elapsed)}s")
+
+                # OBSERVABILITY VALIDATION: Verify logs were captured
+                print(f"   📊 Observability check:")
+                print(f"      - Recent logs: {len(logs)} entries")
+                if len(logs) > 0:
+                    print(f"      - Latest: {logs[0].get('message', 'N/A')}")
+
+                # CRITICAL: Validate actual result, not just job completion
+                if validate_result:
+                    result = job_data.get("result", {})
+
+                    # Check for explicit failure indicators
+                    has_error = result.get("error") is not None
+                    success_field = result.get("success")
+
+                    # Logic:
+                    # - If success=False explicitly, it's a failure
+                    # - If error field exists, it's a failure
+                    # - If success=True or success field missing but no error, it's success
+                    is_failure = (success_field is False) or has_error
+
+                    if is_failure:
+                        error_msg = result.get("error") or result.get("message", "Unknown error")
+                        print(f"\n❌ {job_description} FAILED despite job completion:")
+                        print(f"   Error: {error_msg}")
+                        if logs:
+                            print(f"   📋 Recent logs:")
+                            for log in logs[-5:]:
+                                print(f"      [{log.get('level', 'INFO')}] {log.get('message', '')}")
+                        raise AssertionError(f"{job_description} failed: {error_msg}")
+
+                    print(f"   ✅ Result validation: success (no errors detected)")
+
                 return job_data
 
             # Check if failed
             if status == "failed":
                 error = job_data.get("error", "Unknown error")
                 print(f"❌ {job_description} failed: {error}")
+
+                # Show recent logs to help debug (NEW: Observability for failures)
+                if logs:
+                    print(f"   📋 Recent logs before failure:")
+                    for log in logs[-5:]:
+                        print(f"      [{log.get('level', 'INFO')}] {log.get('message', '')}")
+
                 raise AssertionError(f"{job_description} failed: {error}")
 
             # Check if cancelled
@@ -163,7 +220,7 @@ class TestAPIE2EWorkflow:
             # ===========================================
             # STEP 1: Configure Provider via API
             # ===========================================
-            print(f"\n🔐 [STEP 1/6] Configuring Hetzner provider via API...")
+            print(f"\n🔐 [STEP 1/7] Configuring Hetzner provider via API...")
 
             # Get token from environment or secrets
             hetzner_token = os.environ.get("HETZNER_TOKEN")
@@ -209,7 +266,7 @@ class TestAPIE2EWorkflow:
             # ===========================================
             # STEP 2: Create Server via API
             # ===========================================
-            print(f"\n🖥️  [STEP 2/6] Creating server via API...")
+            print(f"\n🖥️  [STEP 2/7] Creating server via API...")
 
             # Check if server already exists
             response = api_client.get(f"/api/servers/{server_name}")
@@ -261,7 +318,7 @@ class TestAPIE2EWorkflow:
             # ===========================================
             # STEP 3: Setup Server via API
             # ===========================================
-            print(f"\n🔧 [STEP 3/6] Setting up server infrastructure via API...")
+            print(f"\n🔧 [STEP 3/7] Setting up server infrastructure via API...")
             print(f"   This will install Docker, Swarm, Traefik...")
 
             response = api_client.post(
@@ -290,9 +347,42 @@ class TestAPIE2EWorkflow:
             print(f"✅ Server setup completed successfully!")
 
             # ===========================================
+            # STEP 3.5: Deploy Portainer via API (CRITICAL!)
+            # ===========================================
+            print(f"\n🐳 [STEP 3.5/7] Deploying Portainer via API...")
+            print(f"   Portainer is REQUIRED for deploying applications...")
+
+            response = api_client.post(
+                "/api/apps/portainer/deploy",
+                json={
+                    "server_name": server_name,
+                    "environment": {}
+                }
+            )
+
+            assert response.status_code == 202, f"Failed to start Portainer deployment: {response.text}"
+
+            portainer_data = response.json()
+            job_id = portainer_data["job_id"]
+            print(f"✅ Portainer deployment job started: {job_id}")
+
+            # Monitor Portainer deployment with validation
+            job_result = self.poll_job_until_complete(
+                api_client,
+                job_id,
+                "Portainer deployment",
+                validate_result=True  # Will catch if Portainer deployment actually fails
+            )
+
+            apps_deployed.append("portainer")
+            print(f"✅ Portainer deployed successfully!")
+            print(f"⏳ Waiting 30s for Portainer to fully initialize...")
+            time.sleep(30)
+
+            # ===========================================
             # STEP 4: List Available Apps via API
             # ===========================================
-            print(f"\n📦 [STEP 4/6] Listing available apps via API...")
+            print(f"\n📦 [STEP 4/7] Listing available apps via API...")
 
             response = api_client.get("/api/apps")
             assert response.status_code == 200, "Failed to list apps"
@@ -304,7 +394,7 @@ class TestAPIE2EWorkflow:
             # ===========================================
             # STEP 5: Deploy PostgreSQL via API
             # ===========================================
-            print(f"\n🐘 [STEP 5/6] Deploying PostgreSQL via API...")
+            print(f"\n🐘 [STEP 5/7] Deploying PostgreSQL via API...")
 
             response = api_client.post(
                 "/api/apps/postgres/deploy",
@@ -336,7 +426,7 @@ class TestAPIE2EWorkflow:
             # ===========================================
             # STEP 6: Deploy Redis via API
             # ===========================================
-            print(f"\n🔴 [STEP 6/6] Deploying Redis via API...")
+            print(f"\n🔴 [STEP 6/7] Deploying Redis via API...")
 
             response = api_client.post(
                 "/api/apps/redis/deploy",
@@ -366,9 +456,9 @@ class TestAPIE2EWorkflow:
                 print(f"⚠️ Redis deployment skipped: {response.status_code}")
 
             # ===========================================
-            # Verify Final State via API
+            # STEP 7: Verify Final State via API
             # ===========================================
-            print(f"\n🔍 Verifying final state via API...")
+            print(f"\n🔍 [STEP 7/7] Verifying final state via API...")
 
             # Get server details
             response = api_client.get(f"/api/servers/{server_name}")
@@ -390,6 +480,64 @@ class TestAPIE2EWorkflow:
             print(f"✅ Total jobs created: {jobs_data['total']}")
 
             # ===========================================
+            # OBSERVABILITY VALIDATION
+            # ===========================================
+            print(f"\n🔬 [OBSERVABILITY] Validating log capture system...")
+
+            # Get all completed jobs
+            completed_jobs = [job for job in jobs_data["jobs"] if job["status"] == "completed"]
+
+            if completed_jobs:
+                # Pick the server setup job (most logs)
+                setup_job = next((job for job in completed_jobs if "setup" in job["job_type"]), completed_jobs[0])
+                job_id = setup_job["job_id"]
+
+                print(f"   Testing log retrieval for job: {job_id}")
+
+                # Test 1: GET /api/jobs/{job_id} includes recent_logs
+                response = api_client.get(f"/api/jobs/{job_id}")
+                assert response.status_code == 200
+                job_detail = response.json()
+                recent_logs = job_detail.get("logs", [])
+
+                print(f"   ✅ Recent logs via GET /api/jobs/{{id}}: {len(recent_logs)} entries")
+                if len(recent_logs) > 0:
+                    print(f"      Sample: {recent_logs[0].get('message', 'N/A')[:80]}...")
+
+                # Test 2: GET /api/jobs/{job_id}/logs - Detailed logs
+                response = api_client.get(f"/api/jobs/{job_id}/logs?tail=100")
+                assert response.status_code == 200
+                logs_detail = response.json()
+
+                total_lines = logs_detail.get("total_lines", 0)
+                log_file = logs_detail.get("log_file")
+                detailed_logs = logs_detail.get("logs", [])
+
+                print(f"   ✅ Detailed logs via GET /api/jobs/{{id}}/logs:")
+                print(f"      - Total lines: {total_lines}")
+                print(f"      - Log file: {log_file}")
+                if detailed_logs:
+                    print(f"      - Sample (last 3):")
+                    for line in detailed_logs[-3:]:
+                        print(f"         {line[:100]}...")
+
+                # Test 3: Filter by ERROR level
+                response = api_client.get(f"/api/jobs/{job_id}/logs?level=ERROR&tail=50")
+                assert response.status_code == 200
+                error_logs = response.json()
+
+                print(f"   ✅ Filtered logs (ERROR only): {error_logs.get('total_lines', 0)} entries")
+
+                # Assertions for observability
+                assert len(recent_logs) > 0, "Recent logs should not be empty"
+                assert total_lines > 0, "Detailed logs should not be empty"
+                assert log_file is not None, "Log file path should be present"
+
+                print(f"   🎉 Observability validation PASSED!")
+            else:
+                print(f"   ⚠️ No completed jobs to test observability")
+
+            # ===========================================
             # Final Summary
             # ===========================================
             print(f"\n{'='*80}")
@@ -400,9 +548,12 @@ class TestAPIE2EWorkflow:
             print(f"✅ Apps deployed: {', '.join(apps_deployed) if apps_deployed else 'None'}")
             print(f"✅ All operations via REST API")
 
-            # Assertions
+            # Assertions - STRICT: Verify all critical steps completed
             assert server_created, "Server must be created"
             assert server_setup, "Server setup must complete"
+            assert "portainer" in apps_deployed, "Portainer must be deployed (required for app deployments)"
+            assert "postgres" in apps_deployed, "PostgreSQL must be deployed successfully"
+            assert "redis" in apps_deployed, "Redis must be deployed successfully"
 
             print(f"\n🎉 E2E API TEST PASSED!")
             print(f"{'='*80}")

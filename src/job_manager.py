@@ -9,9 +9,12 @@ import asyncio
 import uuid
 from datetime import datetime, timedelta
 from enum import Enum
+from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable, Awaitable
 from dataclasses import dataclass, field
 import logging
+
+from src.job_log_manager import JobLogManager
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +46,8 @@ class Job:
     created_at: datetime = field(default_factory=datetime.utcnow)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
-    logs: List[Dict[str, str]] = field(default_factory=list)
+    logs: List[Dict[str, str]] = field(default_factory=list)  # Deprecated: Use log_file instead
+    log_file: Optional[str] = None  # Path to job log file
 
     def add_log(self, message: str):
         """Add log entry with timestamp"""
@@ -106,7 +110,8 @@ class Job:
             "created_at": self.created_at.isoformat(),
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
-            "logs": self.logs
+            "logs": self.logs,
+            "log_file": self.log_file
         }
 
     @classmethod
@@ -124,7 +129,8 @@ class Job:
             created_at=datetime.fromisoformat(data["created_at"]),
             started_at=datetime.fromisoformat(data["started_at"]) if data.get("started_at") else None,
             completed_at=datetime.fromisoformat(data["completed_at"]) if data.get("completed_at") else None,
-            logs=data.get("logs", [])
+            logs=data.get("logs", []),
+            log_file=data.get("log_file")
         )
 
 
@@ -149,6 +155,10 @@ class JobManager:
         self.storage = storage
         self.jobs: Dict[str, Job] = {}
         self.tasks: Dict[str, asyncio.Task] = {}
+
+        # Initialize JobLogManager
+        logs_dir = Path.home() / ".livchat" / "logs"
+        self.log_manager = JobLogManager(logs_dir)
 
         # Load existing jobs from storage
         if storage:
@@ -251,11 +261,15 @@ class JobManager:
             raise ValueError(f"Job {job_id} not found")
 
         try:
+            # Start log capture
+            log_file = self.log_manager.start_job_logging(job_id)
+            job.log_file = str(log_file)
+
             # Mark as started
             job.mark_started()
             self.save_to_storage()
 
-            # Execute task
+            # Execute task (logs are automatically captured!)
             result = await task_func(job)
 
             # Mark as completed
@@ -268,6 +282,8 @@ class JobManager:
             logger.error(f"Job {job_id} failed: {error_msg}", exc_info=True)
 
         finally:
+            # Stop log capture
+            self.log_manager.stop_job_logging(job_id)
             self.save_to_storage()
 
     def cancel_job(self, job_id: str) -> bool:

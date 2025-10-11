@@ -299,6 +299,133 @@ class TestDeployAppEndpoint:
         assert job.params["environment"] == {"KEY": "value"}
         assert job.status == JobStatus.PENDING
 
+    @patch('src.api.routes.apps.get_app_registry')
+    def test_deploy_infrastructure_app_creates_deploy_infrastructure_job(self, mock_registry):
+        """Should create deploy_infrastructure job for apps with deploy_method=ansible"""
+        # Arrange - Portainer is an infrastructure app (deploy_method: ansible)
+        mock_registry.return_value.get_app.return_value = {
+            "name": "portainer",
+            "deploy_method": "ansible",  # Infrastructure app
+            "category": "infrastructure"
+        }
+        from src.api.dependencies import get_orchestrator
+        orchestrator = get_orchestrator()
+        orchestrator.storage.state.add_server("test-server", {
+            "provider": "hetzner",
+            "status": "running"
+        })
+
+        # Act
+        response = client.post("/api/apps/portainer/deploy", json={
+            "server_name": "test-server"
+        })
+
+        # Assert
+        from src.api.dependencies import get_job_manager
+        manager = get_job_manager()
+        data = response.json()
+        job = manager.get_job(data["job_id"])
+
+        assert job is not None
+        assert job.job_type == "deploy_infrastructure"  # NOT "deploy_app"!
+        assert job.params["app_name"] == "portainer"
+        assert job.params["server_name"] == "test-server"
+        assert job.status == JobStatus.PENDING
+
+    @patch('src.api.routes.apps.get_app_registry')
+    def test_deploy_standard_app_creates_deploy_app_job(self, mock_registry):
+        """Should create deploy_app job for apps with deploy_method=portainer"""
+        # Arrange - PostgreSQL is a standard app (deploy_method: portainer)
+        mock_registry.return_value.get_app.return_value = {
+            "name": "postgres",
+            "deploy_method": "portainer",  # Standard app via Portainer API
+            "category": "databases"
+        }
+        from src.api.dependencies import get_orchestrator
+        orchestrator = get_orchestrator()
+        orchestrator.storage.state.add_server("test-server", {
+            "provider": "hetzner",
+            "status": "running"
+        })
+
+        # Act
+        response = client.post("/api/apps/postgres/deploy", json={
+            "server_name": "test-server"
+        })
+
+        # Assert
+        from src.api.dependencies import get_job_manager
+        manager = get_job_manager()
+        data = response.json()
+        job = manager.get_job(data["job_id"])
+
+        assert job is not None
+        assert job.job_type == "deploy_app"  # Standard deployment
+        assert job.params["app_name"] == "postgres"
+        assert job.params["server_name"] == "test-server"
+        assert job.status == JobStatus.PENDING
+
+    @patch('src.api.routes.apps.get_app_registry')
+    def test_deploy_app_without_deploy_method_defaults_to_deploy_app(self, mock_registry):
+        """Should default to deploy_app job when deploy_method is not specified"""
+        # Arrange - App without deploy_method specified
+        mock_registry.return_value.get_app.return_value = {
+            "name": "custom-app"
+            # No deploy_method specified
+        }
+        from src.api.dependencies import get_orchestrator
+        orchestrator = get_orchestrator()
+        orchestrator.storage.state.add_server("test-server", {
+            "provider": "hetzner",
+            "status": "running"
+        })
+
+        # Act
+        response = client.post("/api/apps/custom-app/deploy", json={
+            "server_name": "test-server"
+        })
+
+        # Assert
+        from src.api.dependencies import get_job_manager
+        manager = get_job_manager()
+        data = response.json()
+        job = manager.get_job(data["job_id"])
+
+        assert job is not None
+        assert job.job_type == "deploy_app"  # Defaults to portainer deployment
+        assert job.params["app_name"] == "custom-app"
+
+    @patch('src.api.routes.apps.get_app_registry')
+    def test_deploy_traefik_creates_deploy_infrastructure_job(self, mock_registry):
+        """Should create deploy_infrastructure job for Traefik (ansible deployment)"""
+        # Arrange - Traefik is also an infrastructure app
+        mock_registry.return_value.get_app.return_value = {
+            "name": "traefik",
+            "deploy_method": "ansible",
+            "category": "infrastructure"
+        }
+        from src.api.dependencies import get_orchestrator
+        orchestrator = get_orchestrator()
+        orchestrator.storage.state.add_server("test-server", {
+            "provider": "hetzner",
+            "status": "running"
+        })
+
+        # Act
+        response = client.post("/api/apps/traefik/deploy", json={
+            "server_name": "test-server"
+        })
+
+        # Assert
+        from src.api.dependencies import get_job_manager
+        manager = get_job_manager()
+        data = response.json()
+        job = manager.get_job(data["job_id"])
+
+        assert job is not None
+        assert job.job_type == "deploy_infrastructure"
+        assert job.params["app_name"] == "traefik"
+
 
 class TestUndeployAppEndpoint:
     """Test POST /api/apps/{name}/undeploy endpoint"""
