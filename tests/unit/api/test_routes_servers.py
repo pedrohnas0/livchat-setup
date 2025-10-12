@@ -602,3 +602,289 @@ class TestServerRoutesIntegration:
 
             # Should return JSON
             assert "application/json" in response.headers["content-type"]
+
+
+class TestConfigureServerDNS:
+    """Test POST /api/servers/{name}/dns endpoint"""
+
+    def setup_method(self):
+        """Reset singletons before each test"""
+        reset_job_manager()
+        reset_orchestrator()
+        from src.api.dependencies import get_job_manager
+        manager = get_job_manager()
+        manager.jobs.clear()
+        manager.save_to_storage()
+
+    def teardown_method(self):
+        """Cleanup after each test"""
+        reset_job_manager()
+        reset_orchestrator()
+
+    def test_configure_dns_returns_200(self):
+        """Should return 200 OK when configuring DNS"""
+        # Arrange
+        from src.api.dependencies import get_orchestrator
+        orchestrator = get_orchestrator()
+        orchestrator.storage.state.add_server("test-server", {
+            "provider": "hetzner",
+            "ip_address": "1.2.3.4",
+            "status": "running"
+        })
+
+        dns_config = {
+            "zone_name": "livchat.ai",
+            "subdomain": "lab"
+        }
+
+        # Act
+        response = client.post("/api/servers/test-server/dns", json=dns_config)
+
+        # Assert
+        assert response.status_code == 200
+
+    def test_configure_dns_saves_to_state(self):
+        """Should save DNS config to server state"""
+        # Arrange
+        from src.api.dependencies import get_orchestrator
+        orchestrator = get_orchestrator()
+        orchestrator.storage.state.add_server("test-server", {
+            "provider": "hetzner",
+            "ip_address": "1.2.3.4",
+            "status": "running"
+        })
+
+        dns_config = {
+            "zone_name": "livchat.ai",
+            "subdomain": "lab"
+        }
+
+        # Act
+        response = client.post("/api/servers/test-server/dns", json=dns_config)
+
+        # Assert
+        assert response.status_code == 200
+
+        # Verify saved in state
+        server = orchestrator.storage.state.get_server("test-server")
+        assert "dns_info" in server
+        assert server["dns_info"]["zone_name"] == "livchat.ai"
+        assert server["dns_info"]["subdomain"] == "lab"
+
+    def test_configure_dns_without_subdomain(self):
+        """Should accept DNS config without subdomain"""
+        # Arrange
+        from src.api.dependencies import get_orchestrator
+        orchestrator = get_orchestrator()
+        orchestrator.storage.state.add_server("test-server", {
+            "provider": "hetzner",
+            "ip_address": "1.2.3.4",
+            "status": "running"
+        })
+
+        dns_config = {
+            "zone_name": "example.com"
+        }
+
+        # Act
+        response = client.post("/api/servers/test-server/dns", json=dns_config)
+
+        # Assert
+        assert response.status_code == 200
+
+        # Verify saved in state
+        server = orchestrator.storage.state.get_server("test-server")
+        assert server["dns_info"]["zone_name"] == "example.com"
+        assert "subdomain" not in server["dns_info"] or server["dns_info"]["subdomain"] is None
+
+    def test_configure_dns_returns_404_for_nonexistent_server(self):
+        """Should return 404 for non-existent server"""
+        # Arrange
+        dns_config = {
+            "zone_name": "livchat.ai",
+            "subdomain": "lab"
+        }
+
+        # Act
+        response = client.post("/api/servers/nonexistent/dns", json=dns_config)
+
+        # Assert
+        assert response.status_code == 404
+        data = response.json()
+        assert "detail" in data
+        assert "not found" in data["detail"].lower()
+
+    def test_configure_dns_validates_zone_name(self):
+        """Should validate zone_name is required"""
+        # Arrange
+        from src.api.dependencies import get_orchestrator
+        orchestrator = get_orchestrator()
+        orchestrator.storage.state.add_server("test-server", {
+            "provider": "hetzner",
+            "status": "running"
+        })
+
+        dns_config = {
+            "subdomain": "lab"
+            # Missing zone_name
+        }
+
+        # Act
+        response = client.post("/api/servers/test-server/dns", json=dns_config)
+
+        # Assert
+        assert response.status_code == 422  # Validation error
+
+    def test_configure_dns_returns_success_message(self):
+        """Should return success message with DNS info"""
+        # Arrange
+        from src.api.dependencies import get_orchestrator
+        orchestrator = get_orchestrator()
+        orchestrator.storage.state.add_server("test-server", {
+            "provider": "hetzner",
+            "status": "running"
+        })
+
+        dns_config = {
+            "zone_name": "livchat.ai",
+            "subdomain": "lab"
+        }
+
+        # Act
+        response = client.post("/api/servers/test-server/dns", json=dns_config)
+
+        # Assert
+        data = response.json()
+        assert data["success"] is True
+        assert "message" in data
+        assert data["server_name"] == "test-server"
+        assert data["dns_config"]["zone_name"] == "livchat.ai"
+        assert data["dns_config"]["subdomain"] == "lab"
+
+    def test_configure_dns_returns_json(self):
+        """Should return JSON response"""
+        # Arrange
+        from src.api.dependencies import get_orchestrator
+        orchestrator = get_orchestrator()
+        orchestrator.storage.state.add_server("test-server", {
+            "provider": "hetzner",
+            "status": "running"
+        })
+
+        dns_config = {
+            "zone_name": "livchat.ai"
+        }
+
+        # Act
+        response = client.post("/api/servers/test-server/dns", json=dns_config)
+
+        # Assert
+        assert "application/json" in response.headers["content-type"]
+
+
+class TestGetServerDNS:
+    """Test GET /api/servers/{name}/dns endpoint"""
+
+    def setup_method(self):
+        """Reset singletons before each test"""
+        reset_job_manager()
+        reset_orchestrator()
+        from src.api.dependencies import get_job_manager
+        manager = get_job_manager()
+        manager.jobs.clear()
+        manager.save_to_storage()
+
+    def teardown_method(self):
+        """Cleanup after each test"""
+        reset_job_manager()
+        reset_orchestrator()
+
+    def test_get_dns_returns_200(self):
+        """Should return 200 OK when DNS is configured"""
+        # Arrange
+        from src.api.dependencies import get_orchestrator
+        orchestrator = get_orchestrator()
+        orchestrator.storage.state.add_server("test-server", {
+            "provider": "hetzner",
+            "status": "running",
+            "dns_info": {
+                "zone_name": "livchat.ai",
+                "subdomain": "lab"
+            }
+        })
+
+        # Act
+        response = client.get("/api/servers/test-server/dns")
+
+        # Assert
+        assert response.status_code == 200
+
+    def test_get_dns_returns_dns_config(self):
+        """Should return DNS configuration"""
+        # Arrange
+        from src.api.dependencies import get_orchestrator
+        orchestrator = get_orchestrator()
+        orchestrator.storage.state.add_server("test-server", {
+            "provider": "hetzner",
+            "status": "running",
+            "dns_info": {
+                "zone_name": "livchat.ai",
+                "subdomain": "lab"
+            }
+        })
+
+        # Act
+        response = client.get("/api/servers/test-server/dns")
+
+        # Assert
+        data = response.json()
+        assert data["server_name"] == "test-server"
+        assert data["dns_config"]["zone_name"] == "livchat.ai"
+        assert data["dns_config"]["subdomain"] == "lab"
+
+    def test_get_dns_returns_404_for_nonexistent_server(self):
+        """Should return 404 for non-existent server"""
+        # Act
+        response = client.get("/api/servers/nonexistent/dns")
+
+        # Assert
+        assert response.status_code == 404
+
+    def test_get_dns_returns_404_when_no_dns_configured(self):
+        """Should return 404 when DNS not configured for server"""
+        # Arrange
+        from src.api.dependencies import get_orchestrator
+        orchestrator = get_orchestrator()
+        orchestrator.storage.state.add_server("test-server", {
+            "provider": "hetzner",
+            "status": "running"
+            # No dns_info
+        })
+
+        # Act
+        response = client.get("/api/servers/test-server/dns")
+
+        # Assert
+        assert response.status_code == 404
+        data = response.json()
+        assert "detail" in data
+        assert "dns" in data["detail"].lower()
+
+    def test_get_dns_returns_json(self):
+        """Should return JSON response"""
+        # Arrange
+        from src.api.dependencies import get_orchestrator
+        orchestrator = get_orchestrator()
+        orchestrator.storage.state.add_server("test-server", {
+            "provider": "hetzner",
+            "status": "running",
+            "dns_info": {
+                "zone_name": "livchat.ai"
+            }
+        })
+
+        # Act
+        response = client.get("/api/servers/test-server/dns")
+
+        # Assert
+        assert "application/json" in response.headers["content-type"]

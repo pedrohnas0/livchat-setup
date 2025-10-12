@@ -149,3 +149,69 @@ class ServerSetupResponse(BaseModel):
                 "server_name": "production-1"
             }
         }
+
+
+class DNSConfig(BaseModel):
+    """DNS configuration"""
+    zone_name: str = Field(..., description="DNS zone/domain (ex: 'livchat.ai', 'example.com')")
+    subdomain: Optional[str] = Field(None, description="Subdomain prefix (ex: 'lab', 'dev', 'prod')")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "zone_name": "livchat.ai",
+                "subdomain": "lab"
+            }
+        }
+
+
+class DNSConfigureRequest(BaseModel):
+    """Request to configure DNS for a server"""
+    zone_name: str = Field(..., min_length=3, description="DNS zone/domain registered in Cloudflare")
+    subdomain: Optional[str] = Field(None, description="Subdomain prefix (optional)")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "zone_name": "livchat.ai",
+                "subdomain": "lab"
+            }
+        }
+
+
+class DNSConfigureResponse(BaseModel):
+    """Response from DNS configuration"""
+    success: bool = Field(..., description="Whether operation succeeded")
+    message: str = Field(..., description="Success message")
+    server_name: str = Field(..., description="Server name")
+    dns_config: DNSConfig = Field(..., description="DNS configuration")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "success": True,
+                "message": "DNS configuration saved for server 'production-1'",
+                "server_name": "production-1",
+                "dns_config": {
+                    "zone_name": "livchat.ai",
+                    "subdomain": "lab"
+                }
+            }
+        }
+
+
+class DNSGetResponse(BaseModel):
+    """Response from getting DNS configuration"""
+    server_name: str = Field(..., description="Server name")
+    dns_config: DNSConfig = Field(..., description="DNS configuration")
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "server_name": "production-1",
+                "dns_config": {
+                    "zone_name": "livchat.ai",
+                    "subdomain": "lab"
+                }
+            }
+        }

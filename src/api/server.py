@@ -10,10 +10,10 @@ from fastapi.responses import JSONResponse
 import logging
 
 try:
-    from .routes import system, jobs, servers, config, apps, providers
+    from .routes import system, jobs, servers, config, apps, providers, secrets
     from .background import lifespan
 except ImportError:
-    from src.api.routes import system, jobs, servers, config, apps, providers
+    from src.api.routes import system, jobs, servers, config, apps, providers, secrets
     from src.api.background import lifespan
 
 # Configure logging
@@ -49,6 +49,7 @@ app.include_router(system.router, tags=["System"])
 app.include_router(jobs.router)
 app.include_router(servers.router)
 app.include_router(config.router)
+app.include_router(secrets.router)
 app.include_router(apps.router)
 app.include_router(providers.router)
 

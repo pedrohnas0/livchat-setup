@@ -7,6 +7,8 @@ Endpoints for server management:
 - GET /api/servers/{name} - Get server details
 - DELETE /api/servers/{name} - Delete server (async job)
 - POST /api/servers/{name}/setup - Setup server (async job)
+- POST /api/servers/{name}/dns - Configure DNS for server
+- GET /api/servers/{name}/dns - Get DNS configuration
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -22,7 +24,11 @@ try:
         ServerListResponse,
         ServerCreateResponse,
         ServerDeleteResponse,
-        ServerSetupResponse
+        ServerSetupResponse,
+        DNSConfigureRequest,
+        DNSConfigureResponse,
+        DNSGetResponse,
+        DNSConfig
     )
     from ...job_manager import JobManager
     from ...orchestrator import Orchestrator
@@ -35,7 +41,11 @@ except ImportError:
         ServerListResponse,
         ServerCreateResponse,
         ServerDeleteResponse,
-        ServerSetupResponse
+        ServerSetupResponse,
+        DNSConfigureRequest,
+        DNSConfigureResponse,
+        DNSGetResponse,
+        DNSConfig
     )
     from src.job_manager import JobManager
     from src.orchestrator import Orchestrator
@@ -283,4 +293,117 @@ async def setup_server(
 
     except Exception as e:
         logger.error(f"Failed to create setup job: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{name}/dns", response_model=DNSConfigureResponse)
+async def configure_server_dns(
+    name: str,
+    request: DNSConfigureRequest,
+    orchestrator: Orchestrator = Depends(get_orchestrator)
+):
+    """
+    Configure DNS for a server
+
+    Associates a DNS zone and optional subdomain with the server.
+    This configuration is stored in the server's state and will be used
+    automatically when deploying applications.
+
+    Example:
+    - zone_name: "livchat.ai"
+    - subdomain: "lab"
+    - Apps will use pattern: {app}.lab.livchat.ai
+
+    Args:
+        name: Server name
+        request: DNS configuration (zone_name and optional subdomain)
+
+    Returns:
+        Success confirmation with DNS configuration
+
+    Raises:
+        404: Server not found
+    """
+    # Check if server exists
+    server_data = orchestrator.storage.state.get_server(name)
+    if not server_data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Server {name} not found"
+        )
+
+    try:
+        # Prepare DNS info
+        dns_info = {
+            "zone_name": request.zone_name
+        }
+        if request.subdomain:
+            dns_info["subdomain"] = request.subdomain
+
+        # Update server with DNS info
+        server_data["dns_info"] = dns_info
+        orchestrator.storage.state.update_server(name, server_data)
+
+        logger.info(f"DNS configured for server {name}: {dns_info}")
+
+        # Build response
+        dns_config = DNSConfig(**dns_info)
+
+        return DNSConfigureResponse(
+            success=True,
+            message=f"DNS configuration saved for server '{name}'",
+            server_name=name,
+            dns_config=dns_config
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to configure DNS for {name}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{name}/dns", response_model=DNSGetResponse)
+async def get_server_dns(
+    name: str,
+    orchestrator: Orchestrator = Depends(get_orchestrator)
+):
+    """
+    Get DNS configuration for a server
+
+    Returns the DNS zone and subdomain (if configured) for the server.
+
+    Args:
+        name: Server name
+
+    Returns:
+        DNS configuration
+
+    Raises:
+        404: Server not found or DNS not configured
+    """
+    # Check if server exists
+    server_data = orchestrator.storage.state.get_server(name)
+    if not server_data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Server {name} not found"
+        )
+
+    # Check if DNS is configured
+    dns_info = server_data.get("dns_info")
+    if not dns_info:
+        raise HTTPException(
+            status_code=404,
+            detail=f"DNS not configured for server {name}"
+        )
+
+    try:
+        dns_config = DNSConfig(**dns_info)
+
+        return DNSGetResponse(
+            server_name=name,
+            dns_config=dns_config
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to get DNS for {name}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

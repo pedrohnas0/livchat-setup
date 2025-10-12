@@ -1,0 +1,311 @@
+/**
+ * Tools: Server Management (5 tools)
+ *
+ * 1. create-server (async)
+ * 2. list-servers
+ * 3. configure-server-dns
+ * 4. setup-server (async)
+ * 5. delete-server (async)
+ */
+
+import { z } from 'zod';
+import { APIClient } from '../api-client.js';
+import { ErrorHandler } from '../error-handler.js';
+
+// ========================================
+// Schemas
+// ========================================
+
+/**
+ * Schema for create-server tool
+ */
+export const CreateServerInputSchema = z.object({
+  name: z.string()
+    .min(3)
+    .max(50)
+    .regex(/^[a-z0-9-]+$/)
+    .describe('Nome único do servidor (apenas lowercase, números e hífens)'),
+  server_type: z.string()
+    .describe('Tipo do servidor (ex: cx11, cx21). Use get-provider-info para ver valores válidos'),
+  region: z.string()
+    .describe('Região/datacenter (ex: nbg1, fsn1). Use get-provider-info para ver regiões válidas'),
+  image: z.string()
+    .default('debian-12')
+    .describe('Imagem do SO (padrão: debian-12)'),
+});
+
+export type CreateServerInput = z.infer<typeof CreateServerInputSchema>;
+
+/**
+ * Schema for list-servers tool
+ */
+export const ListServersInputSchema = z.object({
+  server_name: z.string().optional()
+    .describe('Nome do servidor específico (opcional)'),
+  include_details: z.boolean()
+    .default(false)
+    .describe('Incluir detalhes completos (padrão: false)'),
+});
+
+export type ListServersInput = z.infer<typeof ListServersInputSchema>;
+
+/**
+ * Schema for configure-server-dns tool
+ */
+export const ConfigureServerDNSInputSchema = z.object({
+  server_name: z.string()
+    .describe('Nome do servidor'),
+  zone_name: z.string()
+    .describe('Domínio principal registrado no Cloudflare (ex: livchat.ai)'),
+  subdomain: z.string().optional()
+    .describe('Subdomain opcional (ex: lab, dev, prod). Apps usarão pattern: {app}.{subdomain}.{zone_name}'),
+});
+
+export type ConfigureServerDNSInput = z.infer<typeof ConfigureServerDNSInputSchema>;
+
+/**
+ * Schema for setup-server tool
+ */
+export const SetupServerInputSchema = z.object({
+  server_name: z.string()
+    .describe('Nome do servidor a configurar'),
+  ssl_email: z.string()
+    .email()
+    .default('admin@example.com')
+    .describe('Email para certificados SSL Let\'s Encrypt'),
+  network_name: z.string()
+    .default('livchat_network')
+    .describe('Nome da rede Docker Swarm overlay'),
+  timezone: z.string()
+    .default('America/Sao_Paulo')
+    .describe('Timezone do servidor (padrão: America/Sao_Paulo - UTC-3)'),
+});
+
+export type SetupServerInput = z.infer<typeof SetupServerInputSchema>;
+
+/**
+ * Schema for delete-server tool
+ */
+export const DeleteServerInputSchema = z.object({
+  server_name: z.string()
+    .describe('Nome do servidor a deletar'),
+  confirm: z.literal(true)
+    .describe('Confirmação obrigatória: true apenas se usuário confirmou explicitamente a deleção'),
+});
+
+export type DeleteServerInput = z.infer<typeof DeleteServerInputSchema>;
+
+// ========================================
+// Tool Handlers
+// ========================================
+
+/**
+ * Tool: create-server (ASYNC)
+ */
+export class CreateServerTool {
+  constructor(private client: APIClient) {}
+
+  async execute(input: CreateServerInput): Promise<string> {
+    try {
+      const response = await this.client.post<{ job_id: string }>('/servers', {
+        name: input.name,
+        server_type: input.server_type,
+        region: input.region,
+        image: input.image,
+      });
+
+      let output = '✅ Servidor sendo criado (operação assíncrona)\n\n';
+      output += `🆔 Job ID: ${response.job_id}\n`;
+      output += `📦 Servidor: ${input.name}\n`;
+      output += `🖥️  Tipo: ${input.server_type}\n`;
+      output += `🌍 Região: ${input.region}\n\n`;
+      output += '⏱️  Tempo estimado: 2-5 minutos\n\n';
+      output += '💡 Use get-job-status para acompanhar o progresso:\n';
+      output += `   get-job-status(job_id="${response.job_id}", tail_logs=50)`;
+
+      return output;
+    } catch (error) {
+      return ErrorHandler.formatForMCP(error);
+    }
+  }
+}
+
+/**
+ * Tool: list-servers
+ */
+export class ListServersTool {
+  constructor(private client: APIClient) {}
+
+  async execute(input: ListServersInput): Promise<string> {
+    try {
+      // Get specific server details
+      if (input.server_name) {
+        const server = await this.client.get<any>(`/servers/${input.server_name}`);
+        return this.formatServerDetails(server);
+      }
+
+      // List all servers
+      const servers = await this.client.get<{ servers: any[] }>('/servers');
+
+      if (!servers.servers || servers.servers.length === 0) {
+        return '✅ Nenhum servidor encontrado.\n\n💡 Use create-server para criar seu primeiro servidor.';
+      }
+
+      let output = `✅ Servidores Encontrados: ${servers.servers.length}\n\n`;
+
+      for (const server of servers.servers) {
+        output += `📦 ${server.name}\n`;
+        output += `   🆔 ID: ${server.id}\n`;
+        output += `   🌐 IP: ${server.ip_address || 'N/A'}\n`;
+        output += `   📊 Status: ${server.status}\n`;
+
+        if (input.include_details && server.applications) {
+          output += `   📱 Apps: ${server.applications.join(', ') || 'Nenhuma'}\n`;
+        }
+
+        output += '\n';
+      }
+
+      output += '💡 Use list-servers(server_name="nome") para detalhes completos.';
+
+      return output;
+    } catch (error) {
+      return ErrorHandler.formatForMCP(error);
+    }
+  }
+
+  private formatServerDetails(server: any): string {
+    let output = '✅ Detalhes do Servidor\n\n';
+    output += `📦 Nome: ${server.name}\n`;
+    output += `🆔 ID: ${server.id}\n`;
+    output += `🌐 IP: ${server.ip_address || 'N/A'}\n`;
+    output += `📊 Status: ${server.status}\n`;
+    output += `🖥️  Tipo: ${server.server_type || 'N/A'}\n`;
+    output += `🌍 Região: ${server.region || 'N/A'}\n`;
+
+    if (server.dns_config) {
+      output += `\n🌐 Configuração DNS:\n`;
+      output += `   Zone: ${server.dns_config.zone_name}\n`;
+      if (server.dns_config.subdomain) {
+        output += `   Subdomain: ${server.dns_config.subdomain}\n`;
+      }
+    }
+
+    if (server.applications && server.applications.length > 0) {
+      output += `\n📱 Aplicações Instaladas (${server.applications.length}):\n`;
+      for (const app of server.applications) {
+        output += `   - ${app}\n`;
+      }
+    } else {
+      output += '\n📱 Aplicações: Nenhuma instalada\n';
+    }
+
+    if (server.created_at) {
+      output += `\n🕐 Criado em: ${server.created_at}\n`;
+    }
+
+    return output;
+  }
+}
+
+/**
+ * Tool: configure-server-dns
+ */
+export class ConfigureServerDNSTool {
+  constructor(private client: APIClient) {}
+
+  async execute(input: ConfigureServerDNSInput): Promise<string> {
+    try {
+      await this.client.post(`/servers/${input.server_name}/dns`, {
+        zone_name: input.zone_name,
+        subdomain: input.subdomain,
+      });
+
+      let output = '✅ Configuração DNS associada ao servidor\n\n';
+      output += `📦 Servidor: ${input.server_name}\n`;
+      output += `🌐 Zone: ${input.zone_name}\n`;
+
+      if (input.subdomain) {
+        output += `🏷️  Subdomain: ${input.subdomain}\n`;
+        output += `\n📝 Pattern de domínios: {app}.${input.subdomain}.${input.zone_name}\n`;
+        output += `   Exemplo: n8n.${input.subdomain}.${input.zone_name}\n`;
+      } else {
+        output += `\n📝 Pattern de domínios: {app}.${input.zone_name}\n`;
+        output += `   Exemplo: n8n.${input.zone_name}\n`;
+      }
+
+      output += '\n💡 Aplicações deployadas neste servidor usarão esta configuração DNS automaticamente.';
+
+      return output;
+    } catch (error) {
+      return ErrorHandler.formatForMCP(error);
+    }
+  }
+}
+
+/**
+ * Tool: setup-server (ASYNC)
+ */
+export class SetupServerTool {
+  constructor(private client: APIClient) {}
+
+  async execute(input: SetupServerInput): Promise<string> {
+    try {
+      const response = await this.client.post<{ job_id: string }>(
+        `/servers/${input.server_name}/setup`,
+        {
+          ssl_email: input.ssl_email,
+          network_name: input.network_name,
+          timezone: input.timezone,
+        }
+      );
+
+      let output = '✅ Setup do servidor iniciado (operação assíncrona)\n\n';
+      output += `🆔 Job ID: ${response.job_id}\n`;
+      output += `📦 Servidor: ${input.server_name}\n\n`;
+      output += '🔧 Etapas do setup:\n';
+      output += '   1️⃣  Atualização do sistema\n';
+      output += '   2️⃣  Instalação do Docker\n';
+      output += '   3️⃣  Inicialização do Swarm\n';
+      output += '   4️⃣  Deploy Traefik (reverse proxy)\n';
+      output += '   5️⃣  Deploy Portainer (gerenciamento)\n\n';
+      output += '⏱️  Tempo estimado: 5-10 minutos\n\n';
+      output += '💡 Use get-job-status para acompanhar o progresso:\n';
+      output += `   get-job-status(job_id="${response.job_id}", tail_logs=50)`;
+
+      return output;
+    } catch (error) {
+      return ErrorHandler.formatForMCP(error);
+    }
+  }
+}
+
+/**
+ * Tool: delete-server (ASYNC)
+ */
+export class DeleteServerTool {
+  constructor(private client: APIClient) {}
+
+  async execute(input: DeleteServerInput): Promise<string> {
+    try {
+      const response = await this.client.delete<{ job_id: string }>(
+        `/servers/${input.server_name}`
+      );
+
+      let output = '✅ Servidor sendo deletado (operação assíncrona)\n\n';
+      output += `🆔 Job ID: ${response.job_id}\n`;
+      output += `📦 Servidor: ${input.server_name}\n\n`;
+      output += '⚠️  ATENÇÃO: Esta operação é IRREVERSÍVEL\n';
+      output += '   - Todos os dados serão perdidos permanentemente\n';
+      output += '   - Todas as aplicações serão removidas\n';
+      output += '   - O servidor será destruído no provedor de nuvem\n\n';
+      output += '⏱️  Tempo estimado: 1-2 minutos\n\n';
+      output += '💡 Use get-job-status para acompanhar:\n';
+      output += `   get-job-status(job_id="${response.job_id}")`;
+
+      return output;
+    } catch (error) {
+      return ErrorHandler.formatForMCP(error);
+    }
+  }
+}
