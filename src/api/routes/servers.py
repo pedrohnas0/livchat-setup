@@ -92,7 +92,7 @@ async def create_server(
     """
     try:
         # Create job for server creation
-        job = job_manager.create_job(
+        job = await job_manager.create_job(
             job_type="create_server",
             params={
                 "name": request.name,
@@ -153,15 +153,21 @@ async def list_servers(
 @router.get("/{name}", response_model=ServerInfo)
 async def get_server(
     name: str,
+    verify_provider: bool = True,
     orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """
     Get server details by name
 
     Returns complete server information from state.
+    Optionally verifies the server still exists in the cloud provider.
+
+    Args:
+        name: Server name
+        verify_provider: If True, checks if server exists in provider (default: True)
 
     Raises:
-        404: Server not found
+        404: Server not found (or deleted in provider)
     """
     server_data = orchestrator.storage.state.get_server(name)
 
@@ -170,6 +176,65 @@ async def get_server(
             status_code=404,
             detail=f"Server {name} not found"
         )
+
+    # Double-check with provider if requested
+    if verify_provider and server_data.get("provider") == "hetzner":
+        server_id = server_data.get("id")
+
+        if server_id:
+            # Initialize provider if needed (lazy load from vault)
+            if not orchestrator.provider:
+                provider_name = orchestrator.storage.config.get("provider", "hetzner")
+                token = orchestrator.storage.secrets.get_secret(f"{provider_name}_token")
+                if token:
+                    from src.providers.hetzner import HetznerProvider
+                    orchestrator.provider = HetznerProvider(token)
+                    logger.debug(f"Provider {provider_name} initialized for verification")
+
+            # Only verify if provider was successfully initialized
+            if orchestrator.provider:
+                try:
+                    # Try to get server from Hetzner
+                    provider_server = orchestrator.provider.get_server(server_id)
+
+                    # Update state with fresh data from provider
+                    if provider_server:
+                        server_data["status"] = provider_server.get("status", server_data.get("status"))
+                        logger.debug(f"Server {name} verified with provider: {provider_server.get('status')}")
+
+                except ValueError:
+                    # Server not found in Hetzner - was deleted manually
+                    logger.warning(f"Server {name} exists in state but not found in Hetzner (ID: {server_id})")
+
+                    # Update state to reflect deletion
+                    server_data["status"] = "deleted_externally"
+                    orchestrator.storage.state.update_server(name, server_data)
+
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Server {name} was deleted externally (not found in provider)"
+                    )
+                except Exception as e:
+                    error_msg = str(e).lower()
+
+                    # Check if error indicates server was deleted (not found)
+                    if "not found" in error_msg or "not_found" in error_msg:
+                        logger.warning(f"Server {name} exists in state but not found in Hetzner (ID: {server_id})")
+
+                        # Update state to reflect deletion
+                        server_data["status"] = "deleted_externally"
+                        orchestrator.storage.state.update_server(name, server_data)
+
+                        raise HTTPException(
+                            status_code=404,
+                            detail=f"Server {name} was deleted externally (not found in provider)"
+                        )
+
+                    # Other provider errors (network, auth, etc) - use cached state
+                    logger.error(f"Failed to verify server {name} with provider: {e}")
+                    logger.warning(f"Returning cached state for {name} (provider check failed)")
+            else:
+                logger.warning(f"Provider not available for verification (no token in vault)")
 
     return _server_data_to_info(name, server_data)
 
@@ -207,7 +272,7 @@ async def delete_server(
 
     try:
         # Create job for server deletion
-        job = job_manager.create_job(
+        job = await job_manager.create_job(
             job_type="delete_server",
             params={
                 "name": name,
@@ -271,7 +336,7 @@ async def setup_server(
 
     try:
         # Create job for server setup
-        job = job_manager.create_job(
+        job = await job_manager.create_job(
             job_type="setup_server",
             params={
                 "server_name": name,  # Changed from "name" to match executor expectations

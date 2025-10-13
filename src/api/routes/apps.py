@@ -200,7 +200,7 @@ async def deploy_app(
 
     try:
         # Create job with appropriate type
-        job = job_manager.create_job(
+        job = await job_manager.create_job(
             job_type=job_type,
             params={
                 "app_name": name,
@@ -261,7 +261,7 @@ async def undeploy_app(
 
     try:
         # Create job for app undeployment
-        job = job_manager.create_job(
+        job = await job_manager.create_job(
             job_type="undeploy_app",
             params={
                 "app_name": name,

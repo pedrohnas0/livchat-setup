@@ -9,8 +9,10 @@ Executor functions for server-related jobs:
 Each executor takes (Job, Orchestrator) and updates job progress.
 """
 
+import asyncio
 import logging
 from typing import Any, Dict
+import functools
 
 from src.job_manager import Job
 from src.orchestrator import Orchestrator
@@ -42,12 +44,17 @@ async def execute_create_server(job: Job, orchestrator: Orchestrator) -> Dict[st
     job.update_progress(10, f"Creating server {name}...")
 
     # Create server via orchestrator
-    result = orchestrator.create_server(  # NOTE: NOT async!
+    # NOTE: create_server is SYNC (may take 30-60s)
+    # Run in executor to avoid blocking event loop
+    loop = asyncio.get_event_loop()
+    create_func = functools.partial(
+        orchestrator.create_server,
         name=name,
         server_type=server_type,
         region=region,
         image=image
     )
+    result = await loop.run_in_executor(None, create_func)
 
     # Update progress
     job.update_progress(80, f"Server created: {result.get('ip')}")
@@ -87,8 +94,11 @@ async def execute_setup_server(job: Job, orchestrator: Orchestrator) -> Dict[str
     job.update_progress(10, f"Starting setup for {server_name}...")
 
     # Setup server via orchestrator
-    # NOTE: setup_server is NOT async! Pass all config in dict
-    result = orchestrator.setup_server(
+    # NOTE: setup_server is SYNC (runs Ansible for 5-10min)
+    # Must run in executor to avoid blocking event loop
+    loop = asyncio.get_event_loop()
+    setup_func = functools.partial(
+        orchestrator.setup_server,
         server_name=server_name,
         config={
             "ssl_email": ssl_email,
@@ -96,6 +106,7 @@ async def execute_setup_server(job: Job, orchestrator: Orchestrator) -> Dict[str
             "timezone": timezone
         }
     )
+    result = await loop.run_in_executor(None, setup_func)
 
     # Update progress
     job.update_progress(90, "Infrastructure setup completed")

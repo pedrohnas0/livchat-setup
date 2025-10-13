@@ -214,7 +214,7 @@ async def cancel_job(
         )
 
     # Try to cancel
-    success = job_manager.cancel_job(job_id)
+    success = await job_manager.cancel_job(job_id)
 
     if not success:
         raise HTTPException(
@@ -248,7 +248,7 @@ async def cleanup_jobs(
     Returns count of removed jobs.
     """
     try:
-        removed = job_manager.cleanup_old_jobs(max_age_days=max_age_days)
+        removed = await job_manager.cleanup_old_jobs(max_age_days=max_age_days)
 
         logger.info(f"Cleaned up {removed} old jobs (max_age={max_age_days} days)")
 

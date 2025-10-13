@@ -60,8 +60,13 @@ class MCPClient {
    * Connect to MCP server via stdio
    */
   async connect(): Promise<void> {
-    // From dist/tests/e2e/, go up 2 levels to dist/, then index.js
-    const serverPath = path.resolve(__dirname, '../../index.js');
+    // Calculate path to index.js
+    // If running with tsx: __dirname is /tests/e2e/ → need ../../dist/index.js
+    // If compiled: __dirname is /dist/tests/e2e/ → need ../../index.js
+    const isRunningFromSource = __dirname.includes('/tests/e2e');
+    const serverPath = isRunningFromSource
+      ? path.resolve(__dirname, '../../dist/index.js')
+      : path.resolve(__dirname, '../../index.js');
 
     console.error(`🔌 Connecting to MCP server: ${serverPath}`);
 
@@ -124,7 +129,8 @@ class MCPClient {
  * Extract job_id from tool response
  */
 function extractJobId(response: string): string | null {
-  const match = response.match(/Job ID: ([a-zA-Z0-9-]+)/);
+  // Match job_id format: prefix_type-uuid (includes underscores)
+  const match = response.match(/Job ID: ([a-zA-Z0-9_-]+)/);
   return match ? match[1] : null;
 }
 
@@ -183,15 +189,35 @@ async function pollJobUntilComplete(
 
     // Check if completed
     if (status === 'completed') {
-      console.log(`✅ ${jobDescription} completed in ${Math.floor(elapsed)}s`);
+      console.log(`✅ ${jobDescription} job completed in ${Math.floor(elapsed)}s`);
 
-      // Check for errors in result
-      if (hasError(response)) {
-        console.error(`❌ ${jobDescription} FAILED despite completion:`);
-        console.error(response);
-        throw new Error(`${jobDescription} failed`);
+      // CRITICAL: Validate actual result, not just job completion
+      // Check for explicit failure indicators in result
+      const successMatch = response.match(/"success":\s*(false|true)/i);
+      const hasSuccessFalse = successMatch && successMatch[1].toLowerCase() === 'false';
+
+      // Also check for explicit error messages
+      const hasErrorField = response.includes('"error":') && !response.includes('"error": null');
+
+      // Check for common failure messages
+      const hasFailureMessage = response.includes('SSH did not become available') ||
+                               response.includes('failed') ||
+                               response.includes('FAILED');
+
+      if (hasSuccessFalse || hasErrorField || hasFailureMessage) {
+        console.error(`❌ ${jobDescription} FAILED despite job completion:`);
+        console.error('   Result validation detected failure indicators');
+
+        // Extract error message if available
+        const errorMatch = response.match(/"message":\s*"([^"]+)"/);
+        if (errorMatch) {
+          console.error(`   Error: ${errorMatch[1]}`);
+        }
+
+        throw new Error(`${jobDescription} failed: result validation detected errors`);
       }
 
+      console.log(`   ✅ Result validation: success (no errors detected)`);
       return;
     }
 

@@ -5,6 +5,7 @@ import logging
 import os
 import secrets
 import shutil
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, List
@@ -151,7 +152,7 @@ class ConfigStore:
 
 
 class StateStore:
-    """Manages state persistence"""
+    """Manages state persistence with thread-safe operations"""
 
     def __init__(self, config_dir: Path):
         """
@@ -163,6 +164,7 @@ class StateStore:
         self.config_dir = config_dir
         self.state_file = config_dir / "state.json"
         self._state = {"servers": {}}
+        self._lock = threading.Lock()  # Thread-safe lock for all I/O operations
 
     def init(self) -> None:
         """Initialize state file"""
@@ -175,34 +177,51 @@ class StateStore:
 
     def load(self) -> dict:
         """
-        Load state from file
+        Load state from file (thread-safe)
 
         Returns:
             State dictionary
         """
-        if self.state_file.exists():
-            logger.debug(f"Loading state from {self.state_file}")
-            with open(self.state_file, 'r') as f:
-                self._state = json.load(f)
-        else:
-            logger.warning("State file not found, using empty state")
-            self._state = {"servers": {}}
+        with self._lock:
+            try:
+                if self.state_file.exists():
+                    logger.debug(f"Loading state from {self.state_file}")
+                    with open(self.state_file, 'r') as f:
+                        self._state = json.load(f)
+                else:
+                    logger.warning("State file not found, using empty state")
+                    self._state = {"servers": {}}
 
-        return self._state
+                return self._state
+            except Exception as e:
+                logger.error(f"Failed to load state: {e}", exc_info=True)
+                # Return current state on error (don't crash)
+                return self._state
 
     def save(self) -> None:
-        """Save state to file with backup"""
-        # Create backup if file exists
-        if self.state_file.exists():
-            backup_file = self.state_file.with_suffix('.json.backup')
-            shutil.copy2(self.state_file, backup_file)
-            logger.debug(f"Created backup at {backup_file}")
+        """Save state to file with backup (thread-safe)"""
+        with self._lock:
+            try:
+                # Create backup if file exists
+                if self.state_file.exists():
+                    backup_file = self.state_file.with_suffix('.json.backup')
+                    shutil.copy2(self.state_file, backup_file)
+                    logger.debug(f"Created backup at {backup_file}")
 
-        logger.debug(f"Saving state to {self.state_file}")
-        self.config_dir.mkdir(parents=True, exist_ok=True)
+                logger.debug(f"Saving state to {self.state_file}")
+                self.config_dir.mkdir(parents=True, exist_ok=True)
 
-        with open(self.state_file, 'w') as f:
-            json.dump(self._state, f, indent=2, default=str)
+                # Write to temp file first, then atomic rename
+                temp_file = self.state_file.with_suffix('.json.tmp')
+                with open(temp_file, 'w') as f:
+                    json.dump(self._state, f, indent=2, default=str)
+
+                # Atomic rename (prevents partial reads)
+                temp_file.replace(self.state_file)
+
+            except Exception as e:
+                logger.error(f"Failed to save state: {e}", exc_info=True)
+                raise
 
     def add_server(self, name: str, server_data: Dict[str, Any]) -> None:
         """

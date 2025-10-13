@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any, Callable, Awaitable
 from dataclasses import dataclass, field
 import logging
+import functools
 
 from src.job_log_manager import JobLogManager
 
@@ -164,7 +165,7 @@ class JobManager:
         if storage:
             self._load_from_storage()
 
-    def create_job(
+    async def create_job(
         self,
         job_type: str,
         params: Dict[str, Any],
@@ -191,7 +192,7 @@ class JobManager:
         )
 
         self.jobs[job_id] = job
-        self.save_to_storage()
+        await self.save_to_storage()
 
         logger.info(f"Created job {job_id} (type: {job_type})")
         return job
@@ -267,7 +268,7 @@ class JobManager:
 
             # Mark as started
             job.mark_started()
-            self.save_to_storage()
+            await self.save_to_storage()
 
             # Execute task (logs are automatically captured!)
             result = await task_func(job)
@@ -284,9 +285,9 @@ class JobManager:
         finally:
             # Stop log capture
             self.log_manager.stop_job_logging(job_id)
-            self.save_to_storage()
+            await self.save_to_storage()
 
-    def cancel_job(self, job_id: str) -> bool:
+    async def cancel_job(self, job_id: str) -> bool:
         """
         Cancel pending job
 
@@ -305,11 +306,11 @@ class JobManager:
             return False
 
         job.mark_cancelled()
-        self.save_to_storage()
+        await self.save_to_storage()
 
         return True
 
-    def cleanup_old_jobs(self, max_age_days: int = 7) -> int:
+    async def cleanup_old_jobs(self, max_age_days: int = 7) -> int:
         """
         Remove old completed/failed jobs
 
@@ -330,16 +331,27 @@ class JobManager:
                     removed += 1
 
         if removed > 0:
-            self.save_to_storage()
+            await self.save_to_storage()
             logger.info(f"Cleaned up {removed} old jobs")
 
         return removed
 
-    def save_to_storage(self):
-        """Save all jobs to storage"""
+    async def save_to_storage(self):
+        """
+        Save all jobs to storage (async-safe for FastAPI)
+
+        Uses run_in_executor to prevent blocking the event loop
+        during synchronous I/O operations.
+        """
         if not self.storage:
             return
 
+        # Run sync I/O in thread pool to avoid blocking event loop
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, self._save_to_storage_sync)
+
+    def _save_to_storage_sync(self):
+        """Synchronous save - runs in thread pool"""
         jobs_data = [job.to_dict() for job in self.jobs.values()]
         self.storage.state.save_jobs(jobs_data)
 

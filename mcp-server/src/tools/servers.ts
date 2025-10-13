@@ -140,7 +140,9 @@ export class ListServersTool {
     try {
       // Get specific server details
       if (input.server_name) {
-        const server = await this.client.get<any>(`/servers/${input.server_name}`);
+        // CRITICAL: verify_provider=true ensures server still exists in cloud provider
+        // This prevents using stale state data for servers deleted externally
+        const server = await this.client.get<any>(`/servers/${input.server_name}?verify_provider=true`);
         return this.formatServerDetails(server);
       }
 
