@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "livchat-setup": {
+      "command": "npx",
+      "args": ["@pedrohnas/livchat-setup-mcp"],
+      "env": {
+        "LIVCHAT_API_URL": "http://localhost:8000",
+        "LIVCHAT_API_KEY": ""
+      }
+    }
+  }
+}

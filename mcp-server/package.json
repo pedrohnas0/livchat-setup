@@ -1,5 +1,5 @@
 {
-  "name": "@livchat/setup-mcp",
+  "name": "@pedrohnas/livchat-setup-mcp",
   "version": "1.0.0",
   "description": "MCP Server for LivChatSetup - Infrastructure orchestration via AI",
   "main": "dist/index.js",
