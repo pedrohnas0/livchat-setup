@@ -40,8 +40,8 @@ async def execute_create_server(job: Job, orchestrator: Orchestrator) -> Dict[st
     region = params.get("location") or params.get("region")  # Support both for compatibility
     image = params.get("image", "debian-12")
 
-    # Update progress
-    job.update_progress(10, f"Creating server {name}...")
+    # Step 1: Creating server
+    job.advance_step(1, 2, f"Creating server {name} on provider")
 
     # Create server via orchestrator
     # NOTE: create_server is SYNC (may take 30-60s)
@@ -56,13 +56,8 @@ async def execute_create_server(job: Job, orchestrator: Orchestrator) -> Dict[st
     )
     result = await loop.run_in_executor(None, create_func)
 
-    # Update progress
-    job.update_progress(80, f"Server created: {result.get('ip')}")
-
-    # Wait for server to be ready
-    job.update_progress(90, "Waiting for server to initialize...")
-
-    # Final progress
+    # Step 2: Server ready
+    job.advance_step(2, 2, f"Server ready: {result.get('ip')}")
     job.update_progress(100, "Server creation completed")
 
     logger.info(f"Server {name} created successfully: {result.get('id')}")
@@ -72,7 +67,16 @@ async def execute_create_server(job: Job, orchestrator: Orchestrator) -> Dict[st
 
 async def execute_setup_server(job: Job, orchestrator: Orchestrator) -> Dict[str, Any]:
     """
-    Execute server setup job
+    Execute server setup job with step-based progress tracking
+
+    Setup process has 7 main steps:
+    1. Starting setup
+    2. Waiting for SSH
+    3. Base system setup (apt update, timezone, etc)
+    4. Installing Docker
+    5. Initializing Docker Swarm
+    6. Deploying Traefik
+    7. Finalizing setup
 
     Args:
         job: Job instance with params (server_name, ssl_email, network_name, etc)
@@ -80,6 +84,11 @@ async def execute_setup_server(job: Job, orchestrator: Orchestrator) -> Dict[str
 
     Returns:
         Setup result with services installed
+
+    Note: The actual setup runs as a blocking Ansible execution. Future improvement
+    would be to add progress callbacks from server_setup.full_setup() to report
+    each step in real-time. For now, we show step 1/7 during execution and jump
+    to 7/7 on completion. Time-based progress increment provides smooth updates.
     """
     logger.info(f"Executing setup_server job {job.job_id}")
 
@@ -90,12 +99,13 @@ async def execute_setup_server(job: Job, orchestrator: Orchestrator) -> Dict[str
     network_name = params.get("network_name", "livchat_network")
     timezone = params.get("timezone", "UTC")
 
-    # Update progress
-    job.update_progress(10, f"Starting setup for {server_name}...")
+    # Step 1: Starting setup (shows Etapa 1/7)
+    job.advance_step(1, 7, f"Starting setup for {server_name}")
 
     # Setup server via orchestrator
     # NOTE: setup_server is SYNC (runs Ansible for 5-10min)
     # Must run in executor to avoid blocking event loop
+    # During this execution, time-based progress will slowly increment
     loop = asyncio.get_event_loop()
     setup_func = functools.partial(
         orchestrator.setup_server,
@@ -108,11 +118,9 @@ async def execute_setup_server(job: Job, orchestrator: Orchestrator) -> Dict[str
     )
     result = await loop.run_in_executor(None, setup_func)
 
-    # Update progress
-    job.update_progress(90, "Infrastructure setup completed")
-
-    # Final progress
-    job.update_progress(100, "Server setup completed")
+    # Step 7: Setup complete (jumps to final step)
+    job.advance_step(7, 7, "Finalizing server setup")
+    job.update_progress(100, "Server setup completed successfully")
 
     logger.info(f"Server {server_name} setup completed successfully")
 
@@ -136,8 +144,8 @@ async def execute_delete_server(job: Job, orchestrator: Orchestrator) -> Dict[st
     params = job.params
     server_name = params.get("server_name")
 
-    # Update progress
-    job.update_progress(10, f"Deleting server {server_name}...")
+    # Step 1: Deleting server (only step)
+    job.advance_step(1, 1, f"Deleting server {server_name}")
 
     # Delete server via orchestrator
     # NOTE: delete_server is SYNC and returns bool (not Dict like others)
@@ -156,10 +164,7 @@ async def execute_delete_server(job: Job, orchestrator: Orchestrator) -> Dict[st
         "message": f"Server {server_name} {'deleted successfully' if success else 'deletion failed'}"
     }
 
-    # Update progress
-    job.update_progress(80, "Server deleted from provider")
-
-    # Final progress
+    # Mark complete
     job.update_progress(100, "Server deletion completed")
 
     logger.info(f"Server {server_name} deleted: {success}")

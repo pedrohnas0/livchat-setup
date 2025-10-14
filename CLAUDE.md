@@ -101,8 +101,12 @@ Desenvolvedores e empresas precisam configurar múltiplos servidores com diversa
 - **Reverse Proxy**: Traefik
 - **Initial Provider**: Hetzner Cloud
 
+**[DECIDIDO v0.2.0]**
+- **Storage Simplificado**: config.yaml EXTINTO - apenas state.json + credentials.vault
+- **DNS Obrigatório**: Configurado no setup-server (zone_name required, subdomain optional)
+- **Base Infrastructure**: Traefik+Portainer são apps, não parte do setup
+
 **[EM DISCUSSÃO]**
-- **Config Format**: YAML vs JSON (tendência: YAML para configs, JSON para estado)
 - **Database Future**: SQLite como opção para estado complexo
 
 ## 4. Core Components
@@ -123,22 +127,22 @@ class CoreOrchestrator:
     ]
 ```
 
-#### **Storage Manager** [DECIDIDO]
+#### **Storage Manager** [DECIDIDO - v0.2.0 SIMPLIFICADO]
 ```python
 class StorageManager:
     """Gerenciamento unificado de persistência"""
 
     def __init__(self):
-        self.config = ConfigStore()      # Configurações YAML
-        self.state = StateStore()        # Estado JSON
+        self.state = StateStore()        # Estado JSON (PRIMARY)
         self.secrets = SecretsStore()    # Vault criptografado
+        # config.yaml REMOVIDO - complexidade desnecessária
 
     storage_path = "~/.livchat/"
 
     files = {
-        "config.yaml": "Configurações do usuário",
-        "state.json": "Estado dos servidores e deployments",
+        "state.json": "Estado dos servidores, DNS configs e deployments (PRIMARY)",
         "credentials.vault": "Secrets criptografados com Ansible Vault"
+        # config.yaml EXTINTO - tudo vai para state.json
     }
 
     features = [
@@ -147,6 +151,9 @@ class StorageManager:
         "Validação de integridade",
         "Gerenciamento centralizado do ~/.livchat/"
     ]
+
+    # DECISÃO v0.2.0: config.yaml adiciona complexidade sem valor
+    # Tudo que era config agora vai no state.json ou é passado como parâmetro
 ```
 
 #### 🔐 **Storage Decision Matrix** [DECIDIDO]
@@ -277,7 +284,7 @@ class AnsibleRunner:
     ]
 ```
 
-#### **Server Setup** [DECIDIDO]
+#### **Server Setup** [DECIDIDO - v0.2.0 DNS-FIRST]
 ```python
 class ServerSetup:
     """Orquestração do setup completo de servidores"""
@@ -285,10 +292,14 @@ class ServerSetup:
     responsibilities = [
         "Coordenar setup inicial (update, timezone, etc)",
         "Instalar Docker e iniciar Swarm",
-        "Deploy de infraestrutura base (Traefik, Portainer)",
+        "Configurar DNS OBRIGATÓRIO (zone_name + subdomain opcional)",
+        "Salvar DNS config no state.json",
         "Verificar health checks",
         "Rollback em caso de falha"
     ]
+
+    # MUDANÇA v0.2.0: Traefik/Portainer NÃO são parte do setup!
+    # São deployados via deploy-app como bundle "base-infrastructure"
 ```
 
 #### **Dependency Resolver** [DECIDIDO - NOVO]
@@ -475,21 +486,26 @@ class Application:
     installed_at: datetime
 ```
 
-### 6.3 Configuration Model [EM DISCUSSÃO]
-```yaml
-# .livchat/config.yaml
-general:
-  default_provider: hetzner
-  default_region: nbg1
+### 6.3 Storage Model [DECIDIDO - v0.2.0 SIMPLIFICADO]
+```json
+// state.json - ÚNICA fonte de configuração e estado
+{
+  "servers": [
+    {
+      "name": "manager-server",
+      "ip": "1.2.3.4",
+      "provider": "hetzner",
+      "dns_config": {
+        "zone_name": "livchat.ai",     // OBRIGATÓRIO no setup
+        "subdomain": "lab"              // OPCIONAL
+      },
+      "applications": ["base-infrastructure", "n8n"]
+    }
+  ]
+}
 
-providers:
-  hetzner:
-    regions: [nbg1, fsn1, hel1]
-
-apps:
-  defaults:
-    postgres_version: "14"
-    redis_version: "latest"
+// config.yaml - EXTINTO
+// Tudo agora é state.json (dinâmico) ou parâmetros explícitos nas tools
 ```
 
 ## 7. File Structure
@@ -571,10 +587,10 @@ LivChatSetup/
 ├── venv/                  # Python virtual environment (git-ignored)
 │
 ├── .livchat/             # User config directory (in $HOME)
-│   ├── config.yaml       # User configuration
-│   ├── state.json        # Application state
+│   ├── state.json        # Estado completo (servidores, DNS, apps)
 │   ├── credentials.vault # Encrypted secrets
 │   └── ssh_keys/         # SSH keys directory
+│   # config.yaml REMOVIDO em v0.2.0 - complexidade desnecessária
 │
 ├── pyproject.toml        # Python project configuration
 ├── requirements.txt      # Python dependencies
@@ -647,20 +663,26 @@ POST   /webhooks/portainer     # Eventos do Portainer
 POST   /webhooks/health        # Health checks
 ```
 
-### 8.2 MCP Tools [DECIDIDO]
+### 8.2 MCP Tools [DECIDIDO - v0.2.0 ATUALIZADO]
 ```typescript
 tools = [
-    "listar-servidores",
-    "criar-servidor",
-    "destruir-servidor",
-    "instalar-app",
-    "desinstalar-app",
-    "configurar-dns",
-    "verificar-status",
-    "executar-comando",
-    "ver-logs",
-    "backup-servidor"
+    "manage-config",           // Configs não-sensíveis
+    "manage-secrets",          // Credenciais criptografadas
+    "get-provider-info",       // Info de regions/server-types
+    "create-server",           // Criar VPS
+    "list-servers",            // Listar servidores
+    "setup-server",            // Setup + DNS (zone_name OBRIGATÓRIO)
+    "delete-server",           // Destruir servidor
+    "update-server-dns",       // Ajustar DNS pós-setup (v0.2.0 NEW)
+    "list-apps",               // Catálogo de apps
+    "deploy-app",              // Instalar app (valida base-infrastructure + DNS)
+    "undeploy-app",            // Desinstalar app
+    "list-deployed-apps",      // Apps instaladas no servidor
+    "get-job-status",          // Status do job assíncrono
+    "list-jobs"                // Histórico de jobs
 ]
+
+// REMOVIDO em v0.2.0: "configure-server-dns" (agora parte de setup-server)
 ```
 
 ### 8.3 Error Handling [A DESENVOLVER]

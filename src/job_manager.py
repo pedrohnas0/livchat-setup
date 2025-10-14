@@ -50,6 +50,12 @@ class Job:
     logs: List[Dict[str, str]] = field(default_factory=list)  # Deprecated: Use log_file instead
     log_file: Optional[str] = None  # Path to job log file
 
+    # Step tracking for better progress visualization
+    total_steps: int = 0  # Total number of steps (e.g., 7 for setup-server)
+    current_step_num: int = 0  # Current step number (1-based)
+    step_name: str = ""  # Human-readable step name
+    step_start_time: Optional[datetime] = None  # When current step started
+
     def add_log(self, message: str):
         """Add log entry with timestamp"""
         self.logs.append({
@@ -97,6 +103,77 @@ class Job:
         self.completed_at = datetime.utcnow()
         self.add_log("Job cancelled")
 
+    def advance_step(self, step_num: int, total_steps: int, step_name: str):
+        """
+        Advance to next step and calculate hybrid progress
+
+        Progress combines completed steps with time-based increment within current step.
+        This provides smooth progress updates even during long-running steps.
+
+        Args:
+            step_num: Current step number (1-based)
+            total_steps: Total number of steps in the job
+            step_name: Human-readable name of the step
+
+        Progress calculation:
+            - Base progress: (completed_steps / total) * 100
+            - Time increment: Grows smoothly during step execution
+            - Total: base + time_increment (capped at next step threshold)
+        """
+        self.current_step_num = step_num
+        self.total_steps = total_steps
+        self.step_name = step_name
+        self.current_step = step_name  # Keep backward compatibility
+        self.step_start_time = datetime.utcnow()
+
+        # Calculate base progress from completed steps
+        if total_steps > 0:
+            # Progress from fully completed steps
+            base_progress = int(((step_num - 1) / total_steps) * 100)
+
+            # Maximum progress we can show before completing this step
+            next_step_progress = int((step_num / total_steps) * 100)
+            max_increment = next_step_progress - base_progress
+
+            # Start at base progress when entering new step
+            # Time-based increment will be added during execution
+            self.progress = base_progress
+        else:
+            self.progress = 0
+
+        self.add_log(f"Step {step_num}/{total_steps}: {step_name}")
+        logger.info(f"[Job {self.job_id}] Advancing to step {step_num}/{total_steps}: {step_name} (progress: {self.progress}%)")
+
+    def update_progress_with_time(self):
+        """
+        Update progress based on elapsed time in current step
+
+        Called periodically to show smooth progress during long steps.
+        Progress grows gradually but never exceeds the threshold for the next step.
+        """
+        if self.step_start_time and self.total_steps > 0 and self.current_step_num > 0:
+            # Calculate time-based increment
+            elapsed = (datetime.utcnow() - self.step_start_time).total_seconds()
+
+            # Base progress from completed steps
+            base_progress = int(((self.current_step_num - 1) / self.total_steps) * 100)
+
+            # Maximum we can reach in this step
+            next_step_progress = int((self.current_step_num / self.total_steps) * 100)
+            max_increment = next_step_progress - base_progress
+
+            # Smooth time-based increment (grows ~1% per 30 seconds, capped at 80% of step)
+            # This ensures we never reach 100% of the step until it's actually complete
+            time_factor = min(elapsed / 30.0, 10.0)  # Cap at 10 (5 minutes)
+            time_increment = min(int(time_factor * max_increment * 0.1), int(max_increment * 0.8))
+
+            new_progress = base_progress + time_increment
+
+            # Only update if it actually changed
+            if new_progress != self.progress:
+                self.progress = new_progress
+                logger.debug(f"[Job {self.job_id}] Time-based progress update: {self.progress}%")
+
     def to_dict(self) -> Dict[str, Any]:
         """Serialize to dictionary"""
         return {
@@ -112,7 +189,11 @@ class Job:
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
             "logs": self.logs,
-            "log_file": self.log_file
+            "log_file": self.log_file,
+            "total_steps": self.total_steps,
+            "current_step_num": self.current_step_num,
+            "step_name": self.step_name,
+            "step_start_time": self.step_start_time.isoformat() if self.step_start_time else None
         }
 
     @classmethod
@@ -131,7 +212,11 @@ class Job:
             started_at=datetime.fromisoformat(data["started_at"]) if data.get("started_at") else None,
             completed_at=datetime.fromisoformat(data["completed_at"]) if data.get("completed_at") else None,
             logs=data.get("logs", []),
-            log_file=data.get("log_file")
+            log_file=data.get("log_file"),
+            total_steps=data.get("total_steps", 0),
+            current_step_num=data.get("current_step_num", 0),
+            step_name=data.get("step_name", ""),
+            step_start_time=datetime.fromisoformat(data["step_start_time"]) if data.get("step_start_time") else None
         )
 
 

@@ -119,7 +119,6 @@ export class CreateServerTool {
       output += `📦 Servidor: ${input.name}\n`;
       output += `🖥️  Tipo: ${input.server_type}\n`;
       output += `🌍 Região: ${input.region}\n\n`;
-      output += '⏱️  Tempo estimado: 2-5 minutos\n\n';
       output += '💡 Use get-job-status para acompanhar o progresso:\n';
       output += `   get-job-status(job_id="${response.job_id}", tail_logs=50)`;
 
@@ -323,7 +322,6 @@ export class DeleteServerTool {
       output += '   - Todos os dados serão perdidos permanentemente\n';
       output += '   - Todas as aplicações serão removidas\n';
       output += '   - O servidor será destruído no provedor de nuvem\n\n';
-      output += '⏱️  Tempo estimado: 1-2 minutos\n\n';
       output += '💡 Use get-job-status para acompanhar:\n';
       output += `   get-job-status(job_id="${response.job_id}")`;
 

@@ -84,98 +84,98 @@ const tools = {
 // Register all 14 tools with MCP server
 server.tool(
   "manage-config",
-  "Gerencia configurações não-sensíveis do sistema (YAML em ~/.livchat/config.yaml). Exemplos: region padrão, server_type, admin_email, timezone. Use action='get' para obter ou action='set' para definir. Suporta notação de ponto (ex: 'defaults.region'). ATENÇÃO: Para dados sensíveis (tokens, passwords), use 'manage-secrets'.",
+  "Gerencia configurações não-sensíveis (region padrão, timezone, etc). Para tokens/passwords use manage-secrets.",
   ManageConfigInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.manageConfig.execute(input as any) }] })
 );
 
 server.tool(
   "manage-secrets",
-  "Gerencia credenciais sensíveis CRIPTOGRAFADAS no Ansible Vault (~/.livchat/credentials.vault). Use para: tokens de API (Hetzner, Cloudflare), passwords de apps, SSH keys. CRÍTICO: Esta é a ÚNICA forma de configurar providers - hetzner_token DEVE estar no vault para criar servidores. Operações: 'get' (retorna valor decriptado), 'set' (salva criptografado), 'list' (lista chaves sem valores), 'delete' (remove secret).",
+  "Gerencia credenciais criptografadas (tokens, passwords, SSH keys). Configure hetzner_token aqui antes de criar servidores.",
   ManageSecretsInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.manageSecrets.execute(input as any) }] })
 );
 
 server.tool(
   "get-provider-info",
-  "Obtém informações de provedores de nuvem (Hetzner, etc). info_type: 'overview' (status/configuração), 'regions' (datacenters disponíveis), 'server-types' (CPU/RAM/preço), 'all' (tudo). IMPORTANTE: Provider DEVE estar configurado com token no vault antes de consultar regions/server-types. Use 'manage-secrets' com key='hetzner_token' primeiro.",
+  "Obtém informações do provider (regions, server-types, preços). Use antes de create-server para ver opções disponíveis.",
   GetProviderInfoInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.getProviderInfo.execute(input as any) }] })
 );
 
 server.tool(
   "create-server",
-  "Cria novo servidor VPS no provedor de nuvem. **OPERAÇÃO ASSÍNCRONA** (~2-5 min) - retorna job_id para acompanhar via 'get-job-status'. PRÉ-REQUISITO: Provider configurado com token no vault ('manage-secrets' com key='hetzner_token'). VALIDAÇÃO: Antes de executar, use 'get-provider-info' para obter server_type e region válidos.",
+  "Cria servidor VPS. Ex: name='manager-server', server_type='ccx23', region='ash'. Retorna job_id.",
   CreateServerInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.createServer.execute(input as any) }] })
 );
 
 server.tool(
   "list-servers",
-  "Lista servidores gerenciados. Se server_name fornecido, retorna detalhes do servidor específico (IP, status, apps instaladas, DNS config). Use include_details=true para informações completas de todos os servidores.",
+  "Lista servidores. Use server_name para detalhes (IP, apps, DNS) ou include_details=true para info completa de todos.",
   ListServersInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.listServers.execute(input as any) }] })
 );
 
 server.tool(
   "configure-server-dns",
-  "Associa configuração DNS a um servidor existente. Define o domínio principal (zone_name, ex: 'livchat.ai') e subdomain opcional (ex: 'lab', 'dev', 'ops') que serão usados por todas as aplicações instaladas neste servidor. PRÉ-REQUISITO: Cloudflare deve estar configurado ('manage-secrets' com 'cloudflare_email' e 'cloudflare_api_key'). Esta configuração é SALVA NO STATE do servidor e usada automaticamente em deploys futuros.",
+  "Configura DNS do servidor (zone_name + subdomain). Apps usarão automaticamente em deploys. Configure Cloudflare em manage-secrets antes.",
   ConfigureServerDNSInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.configureServerDns.execute(input as any) }] })
 );
 
 server.tool(
   "setup-server",
-  "Executa configuração completa do servidor: atualiza sistema, instala Docker, inicializa Swarm, deploy Traefik + Portainer. **OPERAÇÃO ASSÍNCRONA** (~5-10 min). PRÉ-REQUISITO: Servidor já criado via 'create-server' e job concluído. RECOMENDAÇÃO: Configure DNS antes do setup via 'configure-server-dns' para obter certificados SSL automaticamente.",
+  "Configura servidor: sistema, Docker, Swarm, Traefik e Portainer. Use configure-server-dns antes para SSL automático. Retorna job_id.",
   SetupServerInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.setupServer.execute(input as any) }] })
 );
 
 server.tool(
   "delete-server",
-  "Deleta servidor do provedor de nuvem e remove do estado. **OPERAÇÃO IRREVERSÍVEL e ASSÍNCRONA** (~1-2 min). ATENÇÃO: Todos os dados e aplicações serão perdidos permanentemente. Requer confirmação explícita do usuário com confirm=true.",
+  "Deleta servidor e todos os dados permanentemente. Requer confirm=true do usuário. Retorna job_id.",
   DeleteServerInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.deleteServer.execute(input as any) }] })
 );
 
 server.tool(
   "list-apps",
-  "Lista aplicações disponíveis no catálogo (PostgreSQL, Redis, N8N, Chatwoot, etc). Se app_name fornecido, retorna detalhes completos (dependências, requisitos, variáveis). Pode filtrar por category (databases, applications, infrastructure).",
+  "Lista apps disponíveis (Postgres, Redis, N8N, Chatwoot). Use app_name para ver dependências e requisitos. Filtre por category.",
   ListAppsInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.listApps.execute(input as any) }] })
 );
 
 server.tool(
   "deploy-app",
-  "Instala aplicação em um servidor. Resolve e instala dependências automaticamente (ex: N8N instala PostgreSQL e Redis primeiro). **OPERAÇÃO ASSÍNCRONA** (~2-5 min por app). PRÉ-REQUISITOS: 1) Servidor configurado via 'setup-server', 2) Para DNS automático, use 'configure-server-dns' antes. O sistema usará DNS config do servidor (zone + subdomain) automaticamente se configurado.",
+  "Instala app com dependências automaticamente (ex: N8N instala Postgres + Redis). Usa DNS do servidor se configurado. Retorna job_id.",
   DeployAppInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.deployApp.execute(input as any) }] })
 );
 
 server.tool(
   "undeploy-app",
-  "Remove aplicação de um servidor. **OPERAÇÃO ASSÍNCRONA** (~1-2 min). ATENÇÃO: Dados da aplicação serão perdidos. Requer confirmação explícita do usuário com confirm=true.",
+  "Remove app e dados. Requer confirm=true do usuário. Retorna job_id.",
   UndeployAppInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.undeployApp.execute(input as any) }] })
 );
 
 server.tool(
   "list-deployed-apps",
-  "Lista aplicações instaladas em um servidor específico com status, domínios e informações de deployment.",
+  "Lista apps instaladas em um servidor com status e domínios.",
   ListDeployedAppsInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.listDeployedApps.execute(input as any) }] })
 );
 
 server.tool(
   "get-job-status",
-  "Verifica status de um job: pending (aguardando), running (executando), completed (concluído), failed (falhou), cancelled. Retorna progresso (0-100%), step atual e logs recentes se solicitado.",
+  "Verifica status de job (pending/running/completed/failed). Retorna progresso e logs.",
   GetJobStatusInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.getJobStatus.execute(input as any) }] })
 );
 
 server.tool(
   "list-jobs",
-  "Lista jobs com filtros opcionais. Útil para ver histórico de operações.",
+  "Lista histórico de jobs. Filtre por status se necessário.",
   ListJobsInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.listJobs.execute(input as any) }] })
 );

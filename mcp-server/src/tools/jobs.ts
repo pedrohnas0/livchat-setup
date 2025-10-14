@@ -71,13 +71,19 @@ export class GetJobStatusTool {
     output += `🆔 Job ID: ${job.job_id}\n`;
     output += `📊 Status: ${this.formatStatus(job.status)}\n`;
 
+    // Show step information (Etapa X/Y) if available
+    if (job.total_steps && job.total_steps > 0) {
+      const stepNum = job.current_step_num || 0;
+      const stepName = job.step_name || job.current_step || 'Em andamento';
+      output += `📍 Etapa: ${stepNum}/${job.total_steps} - ${stepName}\n`;
+    } else if (job.current_step || job.step) {
+      // Fallback for jobs without step tracking
+      output += `🔄 Etapa atual: ${job.current_step || job.step}\n`;
+    }
+
     if (job.progress !== undefined) {
       const progressBar = this.createProgressBar(job.progress);
       output += `📈 Progresso: ${progressBar} ${job.progress}%\n`;
-    }
-
-    if (job.step) {
-      output += `🔄 Etapa atual: ${job.step}\n`;
     }
 
     if (job.operation) {
@@ -128,7 +134,18 @@ export class GetJobStatusTool {
       output += '\n📋 Logs:\n';
       output += '```\n';
       for (const log of job.logs) {
-        output += `${log}\n`;
+        if (typeof log === 'string') {
+          output += `${log}\n`;
+        } else if (log && typeof log === 'object') {
+          // Handle {timestamp, message} format
+          const timestamp = log.timestamp || '';
+          const message = log.message || JSON.stringify(log);
+          if (timestamp) {
+            output += `[${timestamp}] ${message}\n`;
+          } else {
+            output += `${message}\n`;
+          }
+        }
       }
       output += '```\n';
     }
