@@ -275,7 +275,7 @@ async def delete_server(
         job = await job_manager.create_job(
             job_type="delete_server",
             params={
-                "name": name,
+                "server_name": name,  # Changed from "name" to match executor expectations
                 "provider_id": server_data.get("provider_id"),
                 "provider": server_data.get("provider", "hetzner")
             }

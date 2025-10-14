@@ -140,8 +140,21 @@ async def execute_delete_server(job: Job, orchestrator: Orchestrator) -> Dict[st
     job.update_progress(10, f"Deleting server {server_name}...")
 
     # Delete server via orchestrator
-    # NOTE: delete_server expects 'name' parameter, NOT 'server_name'
-    result = await orchestrator.delete_server(name=server_name)
+    # NOTE: delete_server is SYNC and returns bool (not Dict like others)
+    # Run in executor to avoid blocking event loop
+    loop = asyncio.get_event_loop()
+    delete_func = functools.partial(
+        orchestrator.delete_server,
+        name=server_name
+    )
+    success = await loop.run_in_executor(None, delete_func)
+
+    # Convert bool to Dict[str, Any] for consistency with other executors
+    result = {
+        "success": success,
+        "server": server_name,
+        "message": f"Server {server_name} {'deleted successfully' if success else 'deletion failed'}"
+    }
 
     # Update progress
     job.update_progress(80, "Server deleted from provider")
@@ -149,6 +162,6 @@ async def execute_delete_server(job: Job, orchestrator: Orchestrator) -> Dict[st
     # Final progress
     job.update_progress(100, "Server deletion completed")
 
-    logger.info(f"Server {server_name} deleted successfully")
+    logger.info(f"Server {server_name} deleted: {success}")
 
     return result
