@@ -225,10 +225,10 @@ class AppDeployer:
         logger.info(f"Configuring DNS for {app_name} on {domain}")
 
         try:
-            # Get DNS info from server
-            dns_info = server.get("dns", {})
-            zone = dns_info.get("zone", domain)
-            subdomain = dns_info.get("subdomain")
+            # Get DNS config from server (v0.2.0)
+            dns_config = server.get("dns_config", {})
+            zone = dns_config.get("zone_name", domain)
+            subdomain = dns_config.get("subdomain")
 
             # Add DNS records using standard prefixes
             result = await self.cloudflare.add_app_with_standard_prefix(

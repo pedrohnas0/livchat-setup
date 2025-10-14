@@ -1031,4 +1031,208 @@ async def deploy_app(self, server_name, app_name, config):
 
 ---
 
-**Última Atualização:** 2025-10-14 13:00 UTC
+## 🐛 Bugs Críticos Encontrados e Corrigidos (2025-10-14 E2E Testing)
+
+### Contexto
+Durante testes E2E completos do v0.2.0, identificamos que apps deployadas não estavam acessíveis via domínio. Investigação revelou 3 bugs críticos.
+
+### Bug #1: N8N Não Subia - Banco de Dados Não Criado ✅ CORRIGIDO
+
+**Sintoma:**
+```bash
+docker service ls
+# n8n_n8n_editor     replicated   0/1   ← Não sobe!
+# n8n_n8n_webhook    replicated   0/1   ← Não sobe!
+
+docker service logs n8n_n8n_editor
+# database "n8n_queue" does not exist
+```
+
+**Causa Raiz:**
+A lógica de criar banco de dados antes do deploy (orchestrator.py:957-994) falhava por 3 razões:
+
+1. **Filtro errado para Swarm**
+   - Busca: `docker ps --filter name=postgres`
+   - Container real: `postgres_postgres.1.xxxxx`
+   - Resultado: Container não encontrado
+
+2. **Sem retry logic**
+   - Se Postgres ainda está iniciando, falha imediatamente
+   - Não aguarda container ficar pronto
+
+3. **Sem wait após deploy**
+   - Postgres é deployado e já tenta criar banco
+   - Container precisa de ~10-15s para inicializar
+
+**Correção Implementada:**
+
+**orchestrator.py:420-459** - Melhorar busca de container:
+```python
+# ANTES (linha ~426):
+"docker ps --filter name=postgres --format '{{.Names}}' | head -1"
+
+# DEPOIS:
+container_name = None
+max_retries = 5
+retry_delay = 3
+
+for attempt in range(max_retries):
+    find_container_cmd = [
+        ...
+        "docker ps --filter name=postgres_postgres --format '{{.Names}}' | head -1"
+    ]
+
+    container_result = subprocess.run(...)
+
+    if container_result.returncode == 0:
+        container_name = container_result.stdout.strip()
+        if container_name:
+            logger.info(f"Found postgres container: {container_name}")
+            break
+
+    if attempt < max_retries - 1:
+        logger.info(f"Container not ready, retrying in {retry_delay}s...")
+        time.sleep(retry_delay)
+```
+
+**orchestrator.py:1016-1027** - Adicionar wait após deploy de databases:
+```python
+# Save generated passwords to vault for dependency apps
+if current_app in ["postgres", "redis"]:
+    password_key = f"{current_app}_password"
+    if password_key in app_config:
+        self.storage.secrets.set_secret(password_key, app_config[password_key])
+        logger.info(f"Saved {current_app} password to vault")
+
+    # Wait for database containers to be fully ready (NOVO!)
+    logger.info(f"⏳ Waiting for {current_app} container to be fully ready...")
+    import time
+    time.sleep(15)  # Give container time to initialize and become healthy
+    logger.info(f"✅ {current_app} should be ready now")
+```
+
+**Resultado:**
+```python
+# Teste manual:
+orchestrator.create_dependency_resources(
+    parent_app='n8n',
+    dependency='postgres',
+    config={'database': 'n8n_queue', 'password': 'xxx'},
+    server_ip='5.161.115.202',
+    ssh_key='/path/to/key'
+)
+# {'success': True, 'database': 'n8n_queue', 'container': 'postgres_postgres.1.o1mrj3b82luj9vj0mj0ef16ab'}
+
+# N8N agora sobe:
+docker service ps n8n_n8n_editor
+# Running 27 seconds ago ✅
+```
+
+**Arquivos Modificados:**
+- `src/orchestrator.py:420-459` - Retry + filtro correto
+- `src/orchestrator.py:1016-1027` - Wait após deploy
+
+---
+
+### Bug #2: DNS Apontando para IP Errado ✅ CORRIGIDO
+
+**Sintoma:**
+```bash
+curl https://edt.lab.livchat.ai
+# Connection timeout ← Não resolve!
+
+curl https://ptn.lab.livchat.ai
+# Connection timeout ← Não resolve!
+```
+
+**Causa Raiz:**
+Cloudflare tinha registros DNS do teste anterior:
+```
+ptn.lab.livchat.ai → 91.99.79.28  ❌ (IP antigo - servidor deletado)
+edt.lab.livchat.ai → CNAME ptn.lab.livchat.ai  ❌ (aponta pro IP errado)
+```
+
+Servidor atual: `5.161.115.202`
+
+**Correção:**
+Atualizamos DNS via Cloudflare API:
+```python
+await cloudflare.update_dns_record(
+    zone_id='0c65ed2e8a1357b24d92fad58520106d',
+    record_id='0d681f575e643f42158f67b4e213a25e',
+    type='A',
+    name='ptn.lab.livchat.ai',
+    content='5.161.115.202',  # IP correto!
+    proxied=False
+)
+# HTTP/1.1 200 OK
+# Updated A record: ptn.lab.livchat.ai
+```
+
+**Resultado:**
+```bash
+curl -I https://edt.lab.livchat.ai
+# HTTP/2 200  ✅ N8N funcionando!
+```
+
+**Observação:**
+Este bug é específico de testes (reutilização de domínios). Em produção, DNS seria criado corretamente no primeiro deploy.
+
+---
+
+### Bug #3: Portainer Sem Rota no Traefik ⚠️ IDENTIFICADO (não corrigido)
+
+**Sintoma:**
+```bash
+curl -I https://ptn.lab.livchat.ai
+# HTTP/2 404  ← Traefik responde mas não encontra rota
+```
+
+**Causa Raiz:**
+```bash
+docker service inspect portainer_portainer --format '{{json .Spec.Labels}}'
+{
+  "traefik.http.routers.portainer.rule": "Host(``)"  ❌ VAZIO!
+}
+```
+
+Deveria ser:
+```
+"traefik.http.routers.portainer.rule": "Host(`ptn.lab.livchat.ai`)"  ✅
+```
+
+**Análise:**
+Portainer é deployado via Ansible (não via Portainer API). O playbook `portainer-deploy.yml` provavelmente não está recebendo ou usando a variável `domain` corretamente.
+
+**Status:** **PENDENTE**
+- N8N funciona (deployado via Portainer API com templates corretos)
+- Portainer NÃO funciona (deployado via Ansible sem domain)
+- Traefik funciona (responde, mas não tem rota para Portainer)
+
+**Próximo Passo:**
+Verificar e corrigir playbook Ansible do Portainer para incluir domain nas labels do Traefik.
+
+---
+
+## 📊 Status Atual do v0.2.0
+
+### ✅ Funcionando Corretamente
+- ✅ DNS obrigatório no setup-server
+- ✅ Infrastructure bundle (Traefik + Portainer)
+- ✅ Auto-deploy de dependências (postgres + redis para N8N)
+- ✅ Criação automática de bancos de dados
+- ✅ N8N totalmente funcional via domínio
+- ✅ Validações de infrastructure e DNS
+
+### ⚠️ Problemas Conhecidos
+- ⚠️ Portainer sem domain nas labels do Traefik
+- ⚠️ Portainer acessível apenas via IP:9443, não via domínio
+
+### 🔧 Próximas Correções
+1. Corrigir playbook `portainer-deploy.yml` para incluir domain
+2. Testar E2E completo com todos os serviços acessíveis via domínio
+3. Publicar v0.2.0 após validação completa
+
+---
+
+**Última Atualização:** 2025-10-14 18:00 UTC

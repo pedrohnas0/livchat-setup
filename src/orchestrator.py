@@ -274,12 +274,12 @@ class Orchestrator:
             )
 
             if result["success"]:
-                # Save DNS info to state (only zone and subdomain)
-                dns_info = {
-                    "zone": zone_name,
+                # Save DNS config to state (only zone and subdomain) - v0.2.0
+                dns_config = {
+                    "zone_name": zone_name,
                     "subdomain": subdomain
                 }
-                server["dns"] = dns_info
+                server["dns_config"] = dns_config
                 self.storage.state.update_server(server_name, server)
 
                 logger.info(f"DNS configured for server {server_name}: {result['record_name']}")
@@ -712,9 +712,10 @@ class Orchestrator:
                 logger.error("This indicates a problem during deployment")
                 return False
 
-            # Create temporary Portainer client for initialization
+            # Create Portainer client and SAVE to self.portainer for reuse
+            # This avoids creating multiple clients with different states
             # NOTE: Portainer initial admin is always 'admin', we can update later via API
-            portainer_client = PortainerClient(
+            self.portainer = PortainerClient(
                 url=f"https://{server_ip}:9443",
                 username="admin",  # Portainer requires 'admin' for initial setup
                 password=portainer_password
@@ -722,17 +723,18 @@ class Orchestrator:
 
             # Wait for Portainer to be ready
             import asyncio
-            ready = asyncio.run(portainer_client.wait_for_ready(max_attempts=30, delay=10))
+            ready = asyncio.run(self.portainer.wait_for_ready(max_attempts=30, delay=10))
 
             if ready:
                 # Initialize admin account
-                initialized = asyncio.run(portainer_client.initialize_admin())
+                initialized = asyncio.run(self.portainer.initialize_admin())
 
                 if initialized:
                     logger.info(f"✅ Portainer admin initialized successfully!")
                     logger.info(f"   Access URL: https://{server_ip}:9443")
                     logger.info(f"   Username: {admin_email}")
                     logger.info(f"   Password stored in vault: portainer_password_{server_name}")
+                    logger.info(f"   PortainerClient saved to orchestrator for reuse")
                     logger.info(f"⚠️  NOTE: Portainer endpoint will be created automatically on first login")
                 else:
                     logger.warning("Portainer admin initialization returned false (may already be initialized)")
@@ -752,6 +754,12 @@ class Orchestrator:
         Returns:
             True if initialized successfully
         """
+        # OPTIMIZATION: Reuse existing PortainerClient if already configured
+        # This avoids creating multiple clients and potential race conditions
+        if self.portainer:
+            logger.info(f"Reusing existing PortainerClient for {server_name}")
+            return True
+
         server = self.get_server(server_name)
         if not server:
             logger.error(f"Server {server_name} not found")
@@ -1028,10 +1036,10 @@ class Orchestrator:
 
             # Configure DNS if successful and Cloudflare is configured
             if self.cloudflare:
-                dns_info = server.get("dns", {})
-                if dns_info.get("zone"):
+                dns_config = server.get("dns_config", {})
+                if dns_config.get("zone_name"):
                     dns_result = await self.app_deployer.configure_dns(
-                        server, current_app, dns_info["zone"]
+                        server, current_app, dns_config["zone_name"]
                     )
                     if dns_result.get("success"):
                         logger.info(f"✅ DNS configured for {current_app}")

@@ -483,21 +483,21 @@ async def configure_server_dns(
         )
 
     try:
-        # Prepare DNS info
-        dns_info = {
+        # Prepare DNS config
+        dns_config_dict = {
             "zone_name": request.zone_name
         }
         if request.subdomain:
-            dns_info["subdomain"] = request.subdomain
+            dns_config_dict["subdomain"] = request.subdomain
 
-        # Update server with DNS info
-        server_data["dns_info"] = dns_info
+        # Update server with DNS config (v0.2.0: using dns_config for consistency)
+        server_data["dns_config"] = dns_config_dict
         orchestrator.storage.state.update_server(name, server_data)
 
-        logger.info(f"DNS configured for server {name}: {dns_info}")
+        logger.info(f"DNS configured for server {name}: {dns_config_dict}")
 
         # Build response
-        dns_config = DNSConfig(**dns_info)
+        dns_config = DNSConfig(**dns_config_dict)
 
         return DNSConfigureResponse(
             success=True,
@@ -538,16 +538,16 @@ async def get_server_dns(
             detail=f"Server {name} not found"
         )
 
-    # Check if DNS is configured
-    dns_info = server_data.get("dns_info")
-    if not dns_info:
+    # Check if DNS is configured (v0.2.0: using dns_config)
+    dns_config_dict = server_data.get("dns_config")
+    if not dns_config_dict:
         raise HTTPException(
             status_code=404,
             detail=f"DNS not configured for server {name}"
         )
 
     try:
-        dns_config = DNSConfig(**dns_info)
+        dns_config = DNSConfig(**dns_config_dict)
 
         return DNSGetResponse(
             server_name=name,

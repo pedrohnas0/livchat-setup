@@ -42,22 +42,49 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
     environment = params.get("environment", {})
     domain = params.get("domain")
 
-    # Update progress
-    job.update_progress(10, f"Deploying infrastructure: {app_name} to {server_name}...")
-
     # Route to appropriate deployment method
     # Infrastructure apps have dedicated deployment methods in orchestrator
 
     if app_name == "portainer":
+        # Step 1/2: Starting deployment
+        job.advance_step(1, 2, f"Deploying Portainer to {server_name}")
         # Deploy Portainer via Ansible
         logger.info(f"Deploying Portainer via Ansible on {server_name}")
+
+        # Get server to access dns_config
+        server_data = orchestrator.get_server(server_name)
+        if not server_data:
+            return {
+                "success": False,
+                "error": f"Server {server_name} not found",
+                "app": app_name,
+                "server": server_name
+            }
 
         # Build config
         config = {
             "environment": environment,
         }
+
+        # Auto-build domain from server's dns_config if not explicitly provided
         if domain:
-            config["dns_domain"] = domain  # Translate 'domain' → 'dns_domain' for internal use
+            config["dns_domain"] = domain  # Use explicit domain if provided
+        else:
+            # Build domain from server's dns_config (v0.2.0)
+            dns_config = server_data.get("dns_config", {})
+            zone_name = dns_config.get("zone_name")
+            subdomain = dns_config.get("subdomain")
+
+            if zone_name:
+                # Use Portainer's dns_prefix (ptn) from app definition
+                dns_prefix = "ptn"
+                if subdomain:
+                    auto_domain = f"{dns_prefix}.{subdomain}.{zone_name}"
+                else:
+                    auto_domain = f"{dns_prefix}.{zone_name}"
+
+                config["dns_domain"] = auto_domain
+                logger.info(f"Auto-built Portainer domain from dns_config: {auto_domain}")
 
         # Call orchestrator's dedicated Portainer deployment method
         # This method is SYNCHRONOUS but we're in an ASYNC context
@@ -68,11 +95,13 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
             config=config
         )
 
-        # Update progress
+        # Step 2/2: Deployment complete
         if result:
-            job.update_progress(80, f"Portainer deployed successfully")
+            job.advance_step(2, 2, "Portainer deployed successfully")
         else:
-            job.update_progress(50, f"Portainer deployment failed")
+            job.advance_step(2, 2, "Portainer deployment failed")
+
+        job.update_progress(100, "Portainer deployment completed")
 
         # Convert boolean result to dict format
         return {
@@ -87,6 +116,9 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
         # Deploy Traefik via Ansible
         logger.info(f"Deploying Traefik via Ansible on {server_name}")
 
+        # Step 1/2: Starting deployment
+        job.advance_step(1, 2, f"Deploying Traefik to {server_name}")
+
         # Build config
         config = {}
         if environment.get("ssl_email"):
@@ -99,9 +131,9 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
             ssl_email=config.get("ssl_email")
         )
 
-        # Update progress
+        # Step 2/2: Deployment complete
         if result:
-            job.update_progress(80, f"Traefik deployed successfully")
+            job.advance_step(2, 2, "Traefik deployed successfully")
 
             # Update server state to add "traefik" to applications list
             server_data = orchestrator.get_server(server_name)
@@ -113,7 +145,9 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
                     orchestrator.storage.state.update_server(server_name, server_data)
                     logger.info(f"Added 'traefik' to {server_name} applications list")
         else:
-            job.update_progress(50, f"Traefik deployment failed")
+            job.advance_step(2, 2, "Traefik deployment failed")
+
+        job.update_progress(100, "Traefik deployment completed")
 
         # Convert boolean result to dict format
         return {
@@ -128,8 +162,8 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
         # Deploy infrastructure bundle (Traefik + Portainer) - v0.2.0
         logger.info(f"Deploying infrastructure bundle (Traefik + Portainer) on {server_name}")
 
-        # Step 1: Deploy Traefik
-        job.update_progress(20, "Deploying Traefik...")
+        # Step 1/3: Deploy Traefik
+        job.advance_step(1, 3, "Deploying Traefik")
         traefik_config = {}
         if environment.get("ssl_email"):
             traefik_config["ssl_email"] = environment["ssl_email"]
@@ -142,6 +176,8 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
 
         if not traefik_result:
             logger.error(f"Traefik deployment failed for {server_name}")
+            job.advance_step(3, 3, "Infrastructure deployment failed")
+            job.update_progress(100, "Infrastructure deployment failed")
             return {
                 "success": False,
                 "error": "Traefik deployment failed",
@@ -150,12 +186,39 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
                 "deploy_method": "ansible"
             }
 
-        job.update_progress(50, "Traefik deployed, deploying Portainer...")
+        # Step 2/3: Deploy Portainer
+        job.advance_step(2, 3, "Traefik deployed, deploying Portainer")
+        # Get server to access dns_config
+        server_data = orchestrator.get_server(server_name)
+        if not server_data:
+            return {
+                "success": False,
+                "error": f"Server {server_name} not found",
+                "app": app_name,
+                "server": server_name
+            }
 
-        # Step 2: Deploy Portainer
         portainer_config = {"environment": environment}
+
+        # Auto-build domain from server's dns_config if not explicitly provided
         if domain:
             portainer_config["dns_domain"] = domain
+        else:
+            # Build domain from server's dns_config (v0.2.0)
+            dns_config = server_data.get("dns_config", {})
+            zone_name = dns_config.get("zone_name")
+            subdomain = dns_config.get("subdomain")
+
+            if zone_name:
+                # Use Portainer's dns_prefix (ptn) from app definition
+                dns_prefix = "ptn"
+                if subdomain:
+                    auto_domain = f"{dns_prefix}.{subdomain}.{zone_name}"
+                else:
+                    auto_domain = f"{dns_prefix}.{zone_name}"
+
+                portainer_config["dns_domain"] = auto_domain
+                logger.info(f"Auto-built Portainer domain from dns_config: {auto_domain}")
 
         portainer_result = await asyncio.to_thread(
             orchestrator.deploy_portainer,
@@ -165,6 +228,8 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
 
         if not portainer_result:
             logger.error(f"Portainer deployment failed for {server_name}")
+            job.advance_step(3, 3, "Infrastructure deployment failed")
+            job.update_progress(100, "Infrastructure deployment failed")
             return {
                 "success": False,
                 "error": "Portainer deployment failed (Traefik succeeded)",
@@ -173,7 +238,8 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
                 "deploy_method": "ansible"
             }
 
-        job.update_progress(90, "Infrastructure bundle deployed successfully")
+        # Step 3/3: Deployment complete
+        job.advance_step(3, 3, "Infrastructure bundle deployed successfully")
 
         # Update server state to add "infrastructure" to applications list
         # This is necessary for validation in app_deployer.py
@@ -185,6 +251,9 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
                 server_data["applications"] = apps
                 orchestrator.storage.state.update_server(server_name, server_data)
                 logger.info(f"Added 'infrastructure' to {server_name} applications list")
+
+        # Final progress
+        job.update_progress(100, "Infrastructure deployment completed")
 
         # Both deployed successfully
         return {
@@ -206,6 +275,3 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
             "app": app_name,
             "server": server_name
         }
-
-    # Final progress
-    job.update_progress(100, "Infrastructure deployment completed")

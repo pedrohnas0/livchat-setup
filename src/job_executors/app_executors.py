@@ -19,7 +19,12 @@ logger = logging.getLogger(__name__)
 
 async def execute_deploy_app(job: Job, orchestrator: Orchestrator) -> Dict[str, Any]:
     """
-    Execute app deployment job
+    Execute app deployment job with step-based progress
+
+    Deployment steps:
+    1. Resolving dependencies
+    2. Deploying app
+    3. Deployment complete
 
     Args:
         job: Job instance with params (app_name, server_name, environment, etc)
@@ -37,8 +42,11 @@ async def execute_deploy_app(job: Job, orchestrator: Orchestrator) -> Dict[str, 
     environment = params.get("environment", {})
     domain = params.get("domain")
 
-    # Update progress
-    job.update_progress(10, f"Deploying {app_name} to {server_name}...")
+    # Step 1: Resolving dependencies
+    job.advance_step(1, 3, f"Resolving dependencies for {app_name}")
+
+    # Step 2: Deploying app
+    job.advance_step(2, 3, f"Deploying {app_name} to {server_name}")
 
     # Deploy app via orchestrator
     # NOTE: Pass environment and domain inside config dict
@@ -54,10 +62,8 @@ async def execute_deploy_app(job: Job, orchestrator: Orchestrator) -> Dict[str, 
         config=config
     )
 
-    # Update progress
-    job.update_progress(80, f"{app_name} deployed successfully")
-
-    # Final progress
+    # Step 3: Deployment complete
+    job.advance_step(3, 3, f"{app_name} deployed successfully")
     job.update_progress(100, "App deployment completed")
 
     logger.info(f"App {app_name} deployed successfully to {server_name}")
@@ -67,7 +73,11 @@ async def execute_deploy_app(job: Job, orchestrator: Orchestrator) -> Dict[str, 
 
 async def execute_undeploy_app(job: Job, orchestrator: Orchestrator) -> Dict[str, Any]:
     """
-    Execute app undeployment job
+    Execute app undeployment job with step-based progress
+
+    Undeployment steps:
+    1. Removing app
+    2. Undeployment complete
 
     Args:
         job: Job instance with params (app_name, server_name)
@@ -83,8 +93,8 @@ async def execute_undeploy_app(job: Job, orchestrator: Orchestrator) -> Dict[str
     app_name = params.get("app_name")
     server_name = params.get("server_name")
 
-    # Update progress
-    job.update_progress(10, f"Undeploying {app_name} from {server_name}...")
+    # Step 1: Removing app
+    job.advance_step(1, 2, f"Removing {app_name} from {server_name}")
 
     # Undeploy app via orchestrator
     result = await orchestrator.undeploy_app(
@@ -92,10 +102,8 @@ async def execute_undeploy_app(job: Job, orchestrator: Orchestrator) -> Dict[str
         server_name=server_name
     )
 
-    # Update progress
-    job.update_progress(80, f"{app_name} removed successfully")
-
-    # Final progress
+    # Step 2: Undeployment complete
+    job.advance_step(2, 2, f"{app_name} removed successfully")
     job.update_progress(100, "App undeployment completed")
 
     logger.info(f"App {app_name} undeployed successfully from {server_name}")
