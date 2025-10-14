@@ -67,49 +67,64 @@ async def execute_create_server(job: Job, orchestrator: Orchestrator) -> Dict[st
 
 async def execute_setup_server(job: Job, orchestrator: Orchestrator) -> Dict[str, Any]:
     """
-    Execute server setup job with step-based progress tracking
+    Execute server setup job with step-based progress tracking (v0.2.0: DNS required)
 
-    Setup process has 7 main steps:
+    Setup process has 4 main steps (v0.2.0 - simplified):
     1. Starting setup
-    2. Waiting for SSH
-    3. Base system setup (apt update, timezone, etc)
-    4. Installing Docker
-    5. Initializing Docker Swarm
-    6. Deploying Traefik
-    7. Finalizing setup
+    2. Base system setup (apt update, timezone, etc)
+    3. Installing Docker and initializing Swarm
+    4. Finalizing setup
+
+    v0.2.0 Changes:
+    - zone_name is now REQUIRED (not optional)
+    - Traefik and Portainer are NO LONGER deployed during setup
+    - They must be deployed separately as "base-infrastructure" app
 
     Args:
-        job: Job instance with params (server_name, ssl_email, network_name, etc)
+        job: Job instance with params (server_name, zone_name, subdomain, ssl_email, etc)
         orchestrator: Orchestrator instance
 
     Returns:
-        Setup result with services installed
+        Setup result with DNS configuration
 
     Note: The actual setup runs as a blocking Ansible execution. Future improvement
     would be to add progress callbacks from server_setup.full_setup() to report
-    each step in real-time. For now, we show step 1/7 during execution and jump
-    to 7/7 on completion. Time-based progress increment provides smooth updates.
+    each step in real-time. For now, we show step 1/4 during execution and jump
+    to 4/4 on completion. Time-based progress increment provides smooth updates.
     """
     logger.info(f"Executing setup_server job {job.job_id}")
 
     # Extract params
     params = job.params
     server_name = params.get("server_name")
+
+    # v0.2.0: DNS configuration (zone_name required, subdomain optional)
+    zone_name = params.get("zone_name")
+    subdomain = params.get("subdomain")
+
+    # Infrastructure configuration
     ssl_email = params.get("ssl_email", "admin@example.com")
     network_name = params.get("network_name", "livchat_network")
-    timezone = params.get("timezone", "UTC")
+    timezone = params.get("timezone", "America/Sao_Paulo")
 
-    # Step 1: Starting setup (shows Etapa 1/7)
-    job.advance_step(1, 7, f"Starting setup for {server_name}")
+    # Validate required params (v0.2.0)
+    if not zone_name:
+        raise ValueError("zone_name is required for server setup (v0.2.0)")
+
+    # Step 1: Starting setup (shows Etapa 1/4)
+    dns_info = f" with DNS {zone_name}" + (f"/{subdomain}" if subdomain else "")
+    job.advance_step(1, 4, f"Starting setup for {server_name}{dns_info}")
 
     # Setup server via orchestrator
-    # NOTE: setup_server is SYNC (runs Ansible for 5-10min)
+    # NOTE: setup_server is SYNC (runs Ansible for 3-5min in v0.2.0)
     # Must run in executor to avoid blocking event loop
     # During this execution, time-based progress will slowly increment
     loop = asyncio.get_event_loop()
     setup_func = functools.partial(
         orchestrator.setup_server,
         server_name=server_name,
+        zone_name=zone_name,  # v0.2.0: Required parameter
+        subdomain=subdomain,  # v0.2.0: Optional parameter
         config={
             "ssl_email": ssl_email,
             "network_name": network_name,
@@ -118,11 +133,11 @@ async def execute_setup_server(job: Job, orchestrator: Orchestrator) -> Dict[str
     )
     result = await loop.run_in_executor(None, setup_func)
 
-    # Step 7: Setup complete (jumps to final step)
-    job.advance_step(7, 7, "Finalizing server setup")
+    # Step 4: Setup complete (jumps to final step)
+    job.advance_step(4, 4, "Finalizing server setup")
     job.update_progress(100, "Server setup completed successfully")
 
-    logger.info(f"Server {server_name} setup completed successfully")
+    logger.info(f"Server {server_name} setup completed successfully with DNS {zone_name}")
 
     return result
 

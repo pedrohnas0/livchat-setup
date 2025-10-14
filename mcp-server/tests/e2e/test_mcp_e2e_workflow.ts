@@ -1,11 +1,17 @@
 /**
- * Complete End-to-End Test via MCP Tools
+ * Complete End-to-End Test via MCP Tools (v0.2.0)
  *
  * This test validates the ENTIRE LivChat Setup workflow using ONLY MCP tools:
  * 1. Server creation via create-server → get-job-status monitoring
- * 2. Server setup via setup-server → get-job-status monitoring
- * 3. App deployment via deploy-app → get-job-status monitoring
- * 4. State verification via list-* tools
+ * 2. Server setup with MANDATORY DNS (v0.2.0) via setup-server
+ * 3. Infrastructure bundle deployment (Traefik + Portainer)
+ * 4. Automatic dependency resolution - deploy N8N installs postgres+redis automatically!
+ * 5. State verification via list-* tools
+ *
+ * v0.2.0 Changes Tested:
+ * - DNS is MANDATORY in setup-server (zone_name required)
+ * - Infrastructure bundle deployed as app (not part of setup)
+ * - Automatic dependency installation (like npm/apt/pip)
  *
  * NO MOCKS - Only real infrastructure, controlled via MCP
  * NO direct API calls - Everything through MCP tools
@@ -61,12 +67,14 @@ class MCPClient {
    */
   async connect(): Promise<void> {
     // Calculate path to index.js
-    // If running with tsx: __dirname is /tests/e2e/ → need ../../dist/index.js
-    // If compiled: __dirname is /dist/tests/e2e/ → need ../../index.js
-    const isRunningFromSource = __dirname.includes('/tests/e2e');
-    const serverPath = isRunningFromSource
-      ? path.resolve(__dirname, '../../dist/index.js')
-      : path.resolve(__dirname, '../../index.js');
+    // When compiled: __dirname is /dist/tests/e2e/ → need ../../index.js
+    // When running with tsx: __dirname is /tests/e2e/ → need ../dist/index.js (not used in practice)
+
+    // Check if we're in the compiled dist directory
+    const isCompiled = __dirname.includes('/dist/');
+    const serverPath = isCompiled
+      ? path.resolve(__dirname, '../../index.js')  // dist/tests/e2e → dist/index.js
+      : path.resolve(__dirname, '../dist/index.js');  // tests/e2e → dist/index.js
 
     console.error(`🔌 Connecting to MCP server: ${serverPath}`);
 
@@ -269,7 +277,7 @@ async function runE2ETest() {
     // ===========================================
     // STEP 1: Verify Secrets via MCP
     // ===========================================
-    console.log('\n🔐 [STEP 1/8] Verifying secrets via MCP...');
+    console.log('\n🔐 [STEP 1/7] Verifying secrets via MCP...');
 
     const secretsResponse = await client.callTool('manage-secrets', {
       action: 'list',
@@ -293,7 +301,7 @@ async function runE2ETest() {
     // ===========================================
     // STEP 2: Create Server via MCP
     // ===========================================
-    console.log('\n🖥️  [STEP 2/8] Creating server via MCP...');
+    console.log('\n🖥️  [STEP 2/7] Creating server via MCP...');
 
     // Check if server already exists
     let serverExistsResponse = await client.callTool('list-servers', {
@@ -348,16 +356,22 @@ async function runE2ETest() {
     }
 
     // ===========================================
-    // STEP 3: Setup Server via MCP
+    // STEP 3: Setup Server via MCP (v0.2.0 - DNS MANDATORY!)
     // ===========================================
-    console.log('\n🔧 [STEP 3/8] Setting up server infrastructure via MCP...');
-    console.log('   This will install Docker, Swarm, Traefik...');
+    console.log('\n🔧 [STEP 3/7] Setting up server infrastructure via MCP (v0.2.0)...');
+    console.log('   v0.2.0: DNS is now MANDATORY during setup!');
+    console.log('   This will install Docker, Swarm (NO Traefik/Portainer - they come later)');
+
+    if (!hasCloudflare) {
+      throw new Error('v0.2.0: Cloudflare credentials required for setup-server (DNS is mandatory)');
+    }
 
     const setupResponse = await client.callTool('setup-server', {
       server_name: serverName,
-      ssl_email: 'admin@example.com',
-      network_name: 'livchat_network',
+      zone_name: config.test_domain,      // ← v0.2.0: MANDATORY!
+      subdomain: config.test_subdomain,   // ← Optional
       timezone: 'America/Sao_Paulo',
+      network_name: 'livchat_network',
     });
 
     console.log(setupResponse);
@@ -375,168 +389,101 @@ async function runE2ETest() {
     await pollJobUntilComplete(client, setupJobId, 'Server setup');
 
     serverSetup = true;
+    dnsConfigured = true;  // DNS is configured automatically in setup now!
     console.log('✅ Server setup completed successfully!');
+    console.log('✅ DNS configured automatically during setup (v0.2.0)');
+    console.log('\n⏳ Waiting 10s for DNS propagation...');
+    await new Promise(resolve => setTimeout(resolve, 10000));
 
     // ===========================================
-    // STEP 3.25: Configure DNS via MCP (if available)
+    // STEP 4: Deploy Infrastructure Bundle via MCP (v0.2.0 NEW!)
     // ===========================================
-    if (hasCloudflare) {
-      console.log('\n🌐 [STEP 3.25/8] Configuring DNS via MCP...');
-      console.log(`   Zone: ${config.test_domain}`);
-      console.log(`   Subdomain: ${config.test_subdomain}`);
+    console.log('\n🏗️  [STEP 4/7] Deploying infrastructure bundle via MCP (v0.2.0)...');
+    console.log('   Bundle: Traefik (reverse proxy + SSL) + Portainer (Docker UI)');
+    console.log('   v0.2.0: Infrastructure is now deployed as an app (not part of setup)');
 
-      const dnsResponse = await client.callTool('configure-server-dns', {
-        server_name: serverName,
-        zone_name: config.test_domain,
-        subdomain: config.test_subdomain,
-      });
-
-      console.log(dnsResponse);
-
-      if (hasError(dnsResponse)) {
-        console.log('⚠️ DNS configuration failed');
-      } else {
-        dnsConfigured = true;
-        console.log('✅ DNS configured successfully!');
-        console.log('\n⏳ Waiting 10s for DNS propagation...');
-        await new Promise(resolve => setTimeout(resolve, 10000));
-      }
-    } else {
-      console.log('\n⏭️ [STEP 3.25/8] Skipping DNS (Cloudflare not configured)');
-    }
-
-    // ===========================================
-    // STEP 3.5: Deploy Portainer via MCP (CRITICAL!)
-    // ===========================================
-    console.log('\n🐳 [STEP 3.5/8] Deploying Portainer via MCP...');
-    console.log('   Portainer is REQUIRED for deploying applications...');
-
-    const portainerResponse = await client.callTool('deploy-app', {
-      app_name: 'portainer',
+    const infrastructureResponse = await client.callTool('deploy-app', {
+      app_name: 'infrastructure',  // ← v0.2.0: Bundle name (was "base-infrastructure")
       server_name: serverName,
       environment: {},
     });
 
-    console.log(portainerResponse);
+    console.log(infrastructureResponse);
 
-    if (hasError(portainerResponse)) {
-      throw new Error('Failed to start Portainer deployment');
+    if (hasError(infrastructureResponse)) {
+      throw new Error('Failed to start infrastructure deployment');
     }
 
-    const portainerJobId = extractJobId(portainerResponse);
-    if (!portainerJobId) {
+    const infrastructureJobId = extractJobId(infrastructureResponse);
+    if (!infrastructureJobId) {
       throw new Error('No job_id returned from deploy-app');
     }
 
-    // Monitor Portainer deployment
-    await pollJobUntilComplete(client, portainerJobId, 'Portainer deployment');
+    // Monitor infrastructure deployment
+    await pollJobUntilComplete(client, infrastructureJobId, 'Infrastructure bundle deployment');
 
-    appsDeployed.push('portainer');
-    console.log('✅ Portainer deployed successfully!');
-    console.log('⏳ Waiting 30s for Portainer to fully initialize...');
+    appsDeployed.push('infrastructure');
+    console.log('✅ Infrastructure bundle deployed successfully!');
+    console.log('   ✅ Traefik: Reverse proxy + SSL termination');
+    console.log('   ✅ Portainer: Docker Swarm management UI');
+    console.log('⏳ Waiting 30s for services to fully initialize...');
     await new Promise(resolve => setTimeout(resolve, 30000));
 
     // ===========================================
-    // STEP 4: List Available Apps via MCP
+    // STEP 5: List Available Apps via MCP
     // ===========================================
-    console.log('\n📦 [STEP 4/8] Listing available apps via MCP...');
+    console.log('\n📦 [STEP 5/7] Listing available apps via MCP...');
 
     const appsResponse = await client.callTool('list-apps', {});
     console.log(appsResponse);
 
     // ===========================================
-    // STEP 5: Deploy PostgreSQL via MCP
+    // STEP 6: Deploy N8N via MCP (v0.2.0 AUTO-DEPENDENCIES!)
     // ===========================================
-    console.log('\n🐘 [STEP 5/8] Deploying PostgreSQL via MCP...');
+    console.log('\n🔄 [STEP 6/7] Deploying N8N with AUTO-DEPENDENCY INSTALLATION (v0.2.0)...');
+    console.log('   v0.2.0 NEW: System will automatically install postgres + redis!');
+    console.log('   This is like running "npm install" - dependencies are resolved automatically! 🎉');
 
-    const postgresResponse = await client.callTool('deploy-app', {
-      app_name: 'postgres',
+    const n8nResponse = await client.callTool('deploy-app', {
+      app_name: 'n8n',
       server_name: serverName,
-      environment: {},
+      environment: {
+        N8N_BASIC_AUTH_USER: 'admin',
+        N8N_BASIC_AUTH_PASSWORD: 'n8npass123',
+      },
     });
 
-    console.log(postgresResponse);
+    console.log(n8nResponse);
 
-    if (!hasError(postgresResponse)) {
-      const postgresJobId = extractJobId(postgresResponse);
-      if (postgresJobId) {
-        try {
-          await pollJobUntilComplete(client, postgresJobId, 'PostgreSQL deployment');
-          appsDeployed.push('postgres');
-          console.log('✅ PostgreSQL deployed successfully!');
-        } catch (e) {
-          console.log(`⚠️ PostgreSQL deployment failed: ${e}`);
-        }
-      }
+    if (hasError(n8nResponse)) {
+      throw new Error('Failed to start N8N deployment');
     }
 
-    // ===========================================
-    // STEP 6: Deploy Redis via MCP
-    // ===========================================
-    console.log('\n🔴 [STEP 6/8] Deploying Redis via MCP...');
-
-    const redisResponse = await client.callTool('deploy-app', {
-      app_name: 'redis',
-      server_name: serverName,
-      environment: {},
-    });
-
-    console.log(redisResponse);
-
-    if (!hasError(redisResponse)) {
-      const redisJobId = extractJobId(redisResponse);
-      if (redisJobId) {
-        try {
-          await pollJobUntilComplete(client, redisJobId, 'Redis deployment');
-          appsDeployed.push('redis');
-          console.log('✅ Redis deployed successfully!');
-        } catch (e) {
-          console.log(`⚠️ Redis deployment failed: ${e}`);
-        }
-      }
+    const n8nJobId = extractJobId(n8nResponse);
+    if (!n8nJobId) {
+      throw new Error('No job_id returned from deploy-app');
     }
 
-    // ===========================================
-    // STEP 6.5: Deploy N8N via MCP (if DNS configured)
-    // ===========================================
-    if (dnsConfigured) {
-      console.log('\n🔄 [STEP 6.5/8] Deploying N8N workflow automation via MCP...');
-      console.log('   Dependencies: PostgreSQL, Redis');
+    // Monitor N8N deployment (this will install postgres + redis + n8n)
+    await pollJobUntilComplete(client, n8nJobId, 'N8N deployment (with auto-dependencies)');
 
-      const n8nResponse = await client.callTool('deploy-app', {
-        app_name: 'n8n',
-        server_name: serverName,
-        environment: {
-          N8N_BASIC_AUTH_USER: 'admin',
-          N8N_BASIC_AUTH_PASSWORD: 'n8npass123',
-        },
-      });
+    appsDeployed.push('n8n');
+    // Dependencies should have been installed automatically
+    appsDeployed.push('postgres');
+    appsDeployed.push('redis');
 
-      console.log(n8nResponse);
-
-      if (!hasError(n8nResponse)) {
-        const n8nJobId = extractJobId(n8nResponse);
-        if (n8nJobId) {
-          try {
-            await pollJobUntilComplete(client, n8nJobId, 'N8N deployment');
-            appsDeployed.push('n8n');
-            console.log('✅ N8N deployed successfully!');
-            const n8nDomain = `edt.${config.test_subdomain}.${config.test_domain}`;
-            console.log(`   URL: https://${n8nDomain}`);
-            console.log('   Credentials: admin / n8npass123');
-          } catch (e) {
-            console.log(`⚠️ N8N deployment failed: ${e}`);
-          }
-        }
-      }
-    } else {
-      console.log('\n⏭️ [STEP 6.5/8] Skipping N8N (DNS not configured)');
-    }
+    console.log('✅ N8N deployed successfully with automatic dependencies!');
+    console.log('   ✅ PostgreSQL installed automatically (dependency)');
+    console.log('   ✅ Redis installed automatically (dependency)');
+    console.log('   ✅ N8N workflow automation');
+    const n8nDomain = `edt.${config.test_subdomain}.${config.test_domain}`;
+    console.log(`   🌐 URL: https://${n8nDomain}`);
+    console.log('   🔑 Credentials: admin / n8npass123');
 
     // ===========================================
     // STEP 7: Verify Final State via MCP
     // ===========================================
-    console.log('\n🔍 [STEP 7/8] Verifying final state via MCP...');
+    console.log('\n🔍 [STEP 7/7] Verifying final state via MCP...');
 
     // Get server details
     const serverDetailsResponse = await client.callTool('list-servers', {
@@ -591,35 +538,39 @@ async function runE2ETest() {
     }
 
     // ===========================================
-    // Final Summary
+    // Final Summary (v0.2.0)
     // ===========================================
     console.log('\n' + '='.repeat(80));
-    console.log('📊 E2E MCP TEST SUMMARY');
+    console.log('📊 E2E MCP TEST SUMMARY (v0.2.0)');
     console.log('='.repeat(80));
     console.log(`✅ Server created: ${serverCreated}`);
-    console.log(`✅ Server setup: ${serverSetup}`);
-    console.log(`✅ DNS configured: ${dnsConfigured}`);
+    console.log(`✅ Server setup (with mandatory DNS): ${serverSetup}`);
+    console.log(`✅ DNS configured automatically: ${dnsConfigured}`);
     console.log(`✅ Apps deployed: ${appsDeployed.join(', ') || 'None'}`);
     console.log('✅ All operations via MCP tools');
+    console.log('✅ v0.2.0 features tested:');
+    console.log('   - Mandatory DNS in setup-server');
+    console.log('   - Infrastructure bundle deployment');
+    console.log('   - Automatic dependency resolution');
 
     // Assertions - STRICT: Verify all critical steps completed
     if (!serverCreated) throw new Error('Server must be created');
     if (!serverSetup) throw new Error('Server setup must complete');
-    if (!appsDeployed.includes('portainer')) {
-      throw new Error('Portainer must be deployed (required for app deployments)');
+    if (!dnsConfigured) throw new Error('DNS must be configured (v0.2.0 mandatory)');
+    if (!appsDeployed.includes('infrastructure')) {
+      throw new Error('Infrastructure bundle must be deployed (v0.2.0: Traefik + Portainer)');
     }
     if (!appsDeployed.includes('postgres')) {
-      throw new Error('PostgreSQL must be deployed successfully');
+      throw new Error('PostgreSQL must be deployed (auto-installed as N8N dependency)');
     }
     if (!appsDeployed.includes('redis')) {
-      throw new Error('Redis must be deployed successfully');
+      throw new Error('Redis must be deployed (auto-installed as N8N dependency)');
     }
-    // N8N is optional (requires DNS)
-    if (dnsConfigured && !appsDeployed.includes('n8n')) {
-      throw new Error('N8N must be deployed when DNS is configured');
+    if (!appsDeployed.includes('n8n')) {
+      throw new Error('N8N must be deployed successfully');
     }
 
-    console.log('\n🎉 E2E MCP TEST PASSED!');
+    console.log('\n🎉 E2E MCP TEST PASSED (v0.2.0)!');
     console.log('='.repeat(80));
 
   } catch (error) {

@@ -9,16 +9,15 @@ logging.basicConfig(
 )
 
 # Public API imports
-from .orchestrator import Orchestrator, DependencyResolver, LivChatSetup
+from .orchestrator import Orchestrator, LivChatSetup
 from .storage import StorageManager, ConfigStore, StateStore, SecretsStore
 
 # Version info
-__version__ = "0.1.0"
+__version__ = "0.2.0"  # v0.2.0: DNS-first architecture, automatic dependencies
 
 # Public exports
 __all__ = [
     "Orchestrator",
-    "DependencyResolver",
     "StorageManager",
     "ConfigStore",
     "StateStore",

@@ -299,25 +299,33 @@ async def delete_server(
 @router.post("/{name}/setup", response_model=ServerSetupResponse, status_code=status.HTTP_202_ACCEPTED)
 async def setup_server(
     name: str,
-    request: Optional[ServerSetupRequest] = None,
+    request: ServerSetupRequest,  # v0.2.0: Now REQUIRED (DNS mandatory)
     job_manager: JobManager = Depends(get_job_manager),
     orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """
-    Setup server with infrastructure (async operation)
+    Setup server with infrastructure (async operation) - v0.2.0
 
     Creates a job for server setup and returns immediately.
     Use the job_id to track progress.
 
+    v0.2.0 Changes:
+    - DNS configuration (zone_name) is now REQUIRED
+    - Traefik and Portainer are NO LONGER deployed during setup
+    - They must be deployed separately as "base-infrastructure" app
+
     Steps performed by the job:
-    1. Update system packages
-    2. Install Docker (if enabled)
-    3. Initialize Docker Swarm (if enabled)
-    4. Deploy Traefik reverse proxy (if enabled)
-    5. Deploy Portainer (if enabled)
+    1. Update system packages and configure timezone
+    2. Install Docker
+    3. Initialize Docker Swarm with overlay network
+    4. Save DNS configuration to server state
+
+    After setup, deploy base-infrastructure:
+    POST /api/apps/deploy with app_name="base-infrastructure"
 
     Raises:
         404: Server not found
+        400: Invalid DNS configuration
 
     Returns:
         202 Accepted with job_id for tracking
@@ -330,29 +338,34 @@ async def setup_server(
             detail=f"Server {name} not found"
         )
 
-    # Use default setup if not provided
-    if request is None:
-        request = ServerSetupRequest()
+    # v0.2.0: Validate zone_name is provided
+    if not request.zone_name:
+        raise HTTPException(
+            status_code=400,
+            detail="zone_name is required for server setup (v0.2.0)"
+        )
 
     try:
-        # Create job for server setup
+        # Create job for server setup with DNS configuration
         job = await job_manager.create_job(
             job_type="setup_server",
             params={
-                "server_name": name,  # Changed from "name" to match executor expectations
-                "ssl_email": request.ssl_email if hasattr(request, 'ssl_email') else "admin@example.com",
-                "network_name": request.network_name if hasattr(request, 'network_name') else "livchat_network",
-                "timezone": request.timezone if hasattr(request, 'timezone') else "UTC"
+                "server_name": name,
+                "zone_name": request.zone_name,  # v0.2.0: DNS required
+                "subdomain": request.subdomain,  # v0.2.0: Optional subdomain
+                "ssl_email": request.ssl_email,
+                "network_name": request.network_name,
+                "timezone": request.timezone
             }
         )
 
-        logger.info(f"Created job {job.job_id} for server setup: {name}")
+        logger.info(f"Created job {job.job_id} for server setup: {name} (DNS: {request.zone_name})")
 
         # TODO: Start background task to execute job
 
         return ServerSetupResponse(
             job_id=job.job_id,
-            message=f"Server setup started for {name}",
+            message=f"Server setup started for {name} with DNS {request.zone_name}",
             server_name=name
         )
 
@@ -361,14 +374,86 @@ async def setup_server(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{name}/dns", response_model=DNSConfigureResponse)
+@router.put("/{name}/dns", response_model=DNSConfigureResponse)
+async def update_server_dns(
+    name: str,
+    request: DNSConfigureRequest,
+    orchestrator: Orchestrator = Depends(get_orchestrator)
+):
+    """
+    Update DNS configuration for a server (v0.2.0)
+
+    Updates the DNS zone and optional subdomain for an existing server.
+    Use this if you need to change the zone or subdomain after setup.
+
+    NOTE: Changing DNS may require redeploying apps to update domains.
+
+    Example:
+    - zone_name: "livchat.ai"
+    - subdomain: "lab"
+    - Apps will use pattern: {app}.lab.livchat.ai
+
+    Args:
+        name: Server name
+        request: DNS configuration (zone_name and optional subdomain)
+
+    Returns:
+        Success confirmation with DNS configuration
+
+    Raises:
+        404: Server not found
+    """
+    # Check if server exists
+    server_data = orchestrator.storage.state.get_server(name)
+    if not server_data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Server {name} not found"
+        )
+
+    try:
+        # Prepare DNS config
+        dns_config_dict = {
+            "zone_name": request.zone_name
+        }
+        if request.subdomain:
+            dns_config_dict["subdomain"] = request.subdomain
+
+        # Update server with DNS config (v0.2.0: using dns_config, not dns_info)
+        server_data["dns_config"] = dns_config_dict
+        orchestrator.storage.state.update_server(name, server_data)
+
+        logger.info(f"DNS updated for server {name}: {dns_config_dict}")
+
+        # Build response
+        dns_config = DNSConfig(**dns_config_dict)
+
+        return DNSConfigureResponse(
+            success=True,
+            message=f"DNS configuration updated for server '{name}'. Apps may need redeployment to use new domains.",
+            server_name=name,
+            dns_config=dns_config
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to update DNS for {name}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{name}/dns", response_model=DNSConfigureResponse, deprecated=True)
 async def configure_server_dns(
     name: str,
     request: DNSConfigureRequest,
     orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """
-    Configure DNS for a server
+    [DEPRECATED v0.2.0] Configure DNS for a server
+
+    ⚠️ DEPRECATED: Use PUT /{name}/dns instead.
+    This endpoint is kept for backward compatibility but will be removed in v0.3.0.
+
+    In v0.2.0, DNS is configured automatically during setup.
+    Use this endpoint only if you need to update DNS after setup.
 
     Associates a DNS zone and optional subdomain with the server.
     This configuration is stored in the server's state and will be used

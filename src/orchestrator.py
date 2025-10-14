@@ -32,238 +32,6 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-class DependencyResolver:
-    """Resolves and manages application dependencies"""
-
-    def __init__(self):
-        """Initialize DependencyResolver"""
-        # Hardcoded dependencies for now - will load from YAML later
-        self.dependencies = {
-            "n8n": ["postgres", "redis"],
-            "chatwoot": ["postgres", "redis", "sidekiq"],
-            "wordpress": ["mysql"],
-            "grafana": ["postgres"],
-            "nocodb": ["postgres"],
-        }
-
-    def resolve_install_order(self, apps: List[str]) -> List[str]:
-        """
-        Resolve installation order based on dependencies
-
-        Args:
-            apps: List of applications to install
-
-        Returns:
-            Ordered list of applications to install (dependencies first)
-        """
-        resolved = []
-        to_resolve = apps.copy()
-
-        # Collect all dependencies needed
-        all_deps = set()
-        for app in apps:
-            deps = self.dependencies.get(app, [])
-            all_deps.update(deps)
-
-        # Add dependencies that aren't in the original list
-        for dep in all_deps:
-            if dep not in to_resolve:
-                to_resolve.append(dep)
-
-        while to_resolve:
-            # Find apps with no unresolved dependencies
-            can_install = []
-            for app in to_resolve:
-                deps = self.dependencies.get(app, [])
-                # Check if all dependencies are resolved
-                if all(dep in resolved for dep in deps):
-                    can_install.append(app)
-
-            if not can_install:
-                # Circular dependency or missing dependency
-                logger.warning(f"Cannot resolve dependencies for: {to_resolve}")
-                break
-
-            # Add resolvable apps to resolved list
-            for app in can_install:
-                if app not in resolved:
-                    resolved.append(app)
-                    to_resolve.remove(app)
-
-        return resolved
-
-    def validate_dependencies(self, app: str) -> Dict[str, Any]:
-        """
-        Validate if an application's dependencies can be satisfied
-
-        Args:
-            app: Application name
-
-        Returns:
-            Validation result with status and details
-        """
-        result = {
-            "valid": True,
-            "app": app,
-            "dependencies": [],
-            "missing": [],
-            "errors": []
-        }
-
-        deps = self.dependencies.get(app, [])
-        result["dependencies"] = deps
-
-        # For now, just return the dependencies
-        # In the future, check if they're installed or available
-
-        return result
-
-    def get_dependencies(self, app: str) -> List[str]:
-        """
-        Get dependencies for an application
-
-        Args:
-            app: Application name
-
-        Returns:
-            List of dependencies
-        """
-        return self.dependencies.get(app, [])
-
-    def configure_dependency(self, parent_app: str, dependency: str) -> Dict[str, Any]:
-        """
-        Configure a dependency for a parent application
-
-        Args:
-            parent_app: Parent application name
-            dependency: Dependency name
-
-        Returns:
-            Configuration details
-        """
-        # This will be expanded to handle actual configuration
-        # For now, return a placeholder
-        config = {
-            "parent": parent_app,
-            "dependency": dependency,
-            "status": "configured"
-        }
-
-        # Example configurations
-        if dependency == "postgres" and parent_app == "n8n":
-            config["database"] = "n8n_queue"
-            config["user"] = "n8n_user"
-        elif dependency == "redis" and parent_app == "n8n":
-            config["db"] = 1
-
-        return config
-
-    def create_dependency_resources(self, parent_app: str, dependency: str,
-                                   config: Dict[str, Any],
-                                   server_ip: str, ssh_key: str) -> Dict[str, Any]:
-        """
-        Create actual resources for a dependency (e.g., PostgreSQL database)
-
-        Args:
-            parent_app: Parent application name
-            dependency: Dependency name (e.g., "postgres")
-            config: Configuration with database, user, password
-            server_ip: Server IP address
-            ssh_key: Path to SSH key file
-
-        Returns:
-            Result dictionary with success status
-        """
-        import subprocess
-
-        logger.info(f"Creating resources for {dependency} dependency of {parent_app}")
-
-        if dependency == "postgres":
-            # Create PostgreSQL database via docker exec
-            database = config.get("database")
-            password = config.get("password")
-
-            if not database:
-                return {
-                    "success": False,
-                    "error": "Database name not specified"
-                }
-
-            try:
-                # Find postgres container name in swarm
-                find_container_cmd = [
-                    "ssh", "-i", ssh_key,
-                    "-o", "StrictHostKeyChecking=no",
-                    "-o", "UserKnownHostsFile=/dev/null",
-                    f"root@{server_ip}",
-                    "docker ps --filter name=postgres --format '{{.Names}}' | head -1"
-                ]
-
-                container_result = subprocess.run(
-                    find_container_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-
-                if container_result.returncode != 0:
-                    return {
-                        "success": False,
-                        "error": f"Failed to find postgres container: {container_result.stderr}"
-                    }
-
-                container_name = container_result.stdout.strip()
-                if not container_name:
-                    return {
-                        "success": False,
-                        "error": "Postgres container not found"
-                    }
-
-                logger.info(f"Found postgres container: {container_name}")
-
-                # Create database using createdb (simpler and safer than raw SQL)
-                create_db_cmd = [
-                    "ssh", "-i", ssh_key,
-                    "-o", "StrictHostKeyChecking=no",
-                    "-o", "UserKnownHostsFile=/dev/null",
-                    f"root@{server_ip}",
-                    f"docker exec {container_name} createdb -U postgres {database} || echo 'Database may already exist'"
-                ]
-
-                result = subprocess.run(
-                    create_db_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-
-                logger.info(f"Create database output: {result.stdout}")
-
-                return {
-                    "success": True,
-                    "database": database,
-                    "container": container_name,
-                    "output": result.stdout
-                }
-
-            except subprocess.TimeoutExpired:
-                return {
-                    "success": False,
-                    "error": "Command timed out"
-                }
-            except Exception as e:
-                logger.error(f"Failed to create database: {e}")
-                return {
-                    "success": False,
-                    "error": str(e)
-                }
-
-        return {
-            "success": False,
-            "error": f"Resource creation not implemented for {dependency}"
-        }
-
-
 class Orchestrator:
     """Main orchestrator for LivChat Setup system"""
 
@@ -276,7 +44,6 @@ class Orchestrator:
         """
         self.config_dir = config_dir or Path.home() / ".livchat"
         self.storage = StorageManager(self.config_dir)
-        self.resolver = DependencyResolver()
         self.provider = None
 
         # Initialize new components
@@ -615,55 +382,124 @@ class Orchestrator:
         logger.info(f"Server {name} deleted successfully")
         return True
 
-    def deploy_apps(self, server_name: str, apps: List[str]) -> Dict[str, Any]:
+    def create_dependency_resources(self, parent_app: str, dependency: str,
+                                   config: Dict[str, Any],
+                                   server_ip: str, ssh_key: str) -> Dict[str, Any]:
         """
-        Deploy applications to a server with dependency resolution
+        Create actual resources for a dependency (e.g., PostgreSQL database)
+
+        This creates RESOURCES (like databases) inside already-deployed apps.
+        It does NOT install the dependency app itself.
 
         Args:
-            server_name: Target server name
-            apps: List of applications to deploy
+            parent_app: Parent application name
+            dependency: Dependency name (e.g., "postgres")
+            config: Configuration with database, user, password
+            server_ip: Server IP address
+            ssh_key: Path to SSH key file
 
         Returns:
-            Deployment result
+            Result dictionary with success status
         """
-        server = self.get_server(server_name)
-        if not server:
-            raise ValueError(f"Server {server_name} not found")
+        import subprocess
 
-        # Resolve installation order
-        install_order = self.resolver.resolve_install_order(apps)
+        logger.info(f"Creating resources for {dependency} dependency of {parent_app}")
 
-        logger.info(f"Resolved installation order: {install_order}")
+        if dependency == "postgres":
+            # Create PostgreSQL database via docker exec
+            database = config.get("database")
+            password = config.get("password")
 
-        # For now, just return the plan
-        # In the future, this will actually deploy
-        result = {
-            "server": server_name,
-            "requested_apps": apps,
-            "install_order": install_order,
-            "status": "planned"
+            if not database:
+                return {
+                    "success": False,
+                    "error": "Database name not specified"
+                }
+
+            try:
+                # Find postgres container name in swarm (with retry)
+                container_name = None
+                max_retries = 5
+                retry_delay = 3
+
+                for attempt in range(max_retries):
+                    find_container_cmd = [
+                        "ssh", "-i", ssh_key,
+                        "-o", "StrictHostKeyChecking=no",
+                        "-o", "UserKnownHostsFile=/dev/null",
+                        f"root@{server_ip}",
+                        # Use service-specific name pattern for Swarm
+                        "docker ps --filter name=postgres_postgres --format '{{.Names}}' | head -1"
+                    ]
+
+                    container_result = subprocess.run(
+                        find_container_cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+
+                    if container_result.returncode == 0:
+                        container_name = container_result.stdout.strip()
+                        if container_name:
+                            logger.info(f"Found postgres container: {container_name}")
+                            break
+
+                    if attempt < max_retries - 1:
+                        logger.info(f"Container not ready yet, retrying in {retry_delay}s... (attempt {attempt + 1}/{max_retries})")
+                        import time
+                        time.sleep(retry_delay)
+
+                if not container_name:
+                    return {
+                        "success": False,
+                        "error": "Postgres container not found after multiple retries. Container may not be running yet."
+                    }
+
+                logger.info(f"✅ Postgres container ready: {container_name}")
+
+                # Create database using createdb (simpler and safer than raw SQL)
+                create_db_cmd = [
+                    "ssh", "-i", ssh_key,
+                    "-o", "StrictHostKeyChecking=no",
+                    "-o", "UserKnownHostsFile=/dev/null",
+                    f"root@{server_ip}",
+                    f"docker exec {container_name} createdb -U postgres {database} || echo 'Database may already exist'"
+                ]
+
+                result = subprocess.run(
+                    create_db_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+
+                logger.info(f"Create database output: {result.stdout}")
+
+                return {
+                    "success": True,
+                    "database": database,
+                    "container": container_name,
+                    "output": result.stdout
+                }
+
+            except subprocess.TimeoutExpired:
+                return {
+                    "success": False,
+                    "error": "Command timed out"
+                }
+            except Exception as e:
+                logger.error(f"Failed to create database: {e}")
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+
+        return {
+            "success": False,
+            "error": f"Resource creation not implemented for {dependency}"
         }
 
-        # Add to deployment history
-        self.storage.state.add_deployment({
-            "server": server_name,
-            "apps": install_order,
-            "status": "planned"
-        })
-
-        return result
-
-    def validate_app_dependencies(self, app: str) -> Dict[str, Any]:
-        """
-        Validate application dependencies
-
-        Args:
-            app: Application name
-
-        Returns:
-            Validation result
-        """
-        return self.resolver.validate_dependencies(app)
 
     def setup_server_ssh(self, server_name: str) -> bool:
         """
@@ -698,32 +534,60 @@ class Orchestrator:
 
         return True
 
-    def setup_server(self, server_name: str, config: Optional[Dict] = None) -> Dict[str, Any]:
+    def setup_server(self, server_name: str, zone_name: str,
+                    subdomain: Optional[str] = None,
+                    config: Optional[Dict] = None) -> Dict[str, Any]:
         """
-        Run complete server setup
+        Run complete server setup with mandatory DNS configuration (v0.2.0)
 
         Args:
             server_name: Name of the server
+            zone_name: Cloudflare zone (REQUIRED - ex: 'livchat.ai')
+            subdomain: Optional subdomain (ex: 'lab', 'prod')
             config: Optional configuration overrides
 
         Returns:
-            Setup result
+            Setup result with DNS configuration
+
+        Raises:
+            ValueError: If server not found or Cloudflare not configured
         """
         server = self.get_server(server_name)
         if not server:
             raise ValueError(f"Server {server_name} not found")
 
-        logger.info(f"Starting setup for server {server_name}")
+        logger.info(f"Starting setup for server {server_name} with DNS: {zone_name}")
+
+        # v0.2.0: Validate Cloudflare credentials BEFORE setup
+        cf_email = self.storage.secrets.get_secret("cloudflare_email")
+        cf_api_key = self.storage.secrets.get_secret("cloudflare_api_key")
+        if not cf_email or not cf_api_key:
+            raise ValueError(
+                "Cloudflare credentials not configured. "
+                "Run manage-secrets to set cloudflare_email and cloudflare_api_key first."
+            )
+
+        logger.info(f"Cloudflare credentials validated for {server_name}")
+
+        # v0.2.0: Save DNS config to state BEFORE setup
+        dns_config = {"zone_name": zone_name}
+        if subdomain:
+            dns_config["subdomain"] = subdomain
+
+        server["dns_config"] = dns_config
+        self.storage.state.update_server(server_name, server)
+        logger.info(f"DNS configured for {server_name}: {dns_config}")
 
         # Ensure SSH key is configured
         if not self.setup_server_ssh(server_name):
             return {
                 "success": False,
                 "message": "Failed to setup SSH key",
-                "server": server_name
+                "server": server_name,
+                "dns_config": dns_config
             }
 
-        # Run full setup through ServerSetup
+        # Run full setup through ServerSetup (no Traefik/Portainer anymore)
         result = self.server_setup.full_setup(server, config)
 
         # Update state with setup status
@@ -741,7 +605,8 @@ class Orchestrator:
             "message": result.message,
             "server": server_name,
             "step": result.step,
-            "details": result.details
+            "details": result.details,
+            "dns_config": dns_config  # v0.2.0: Include DNS in response
         }
 
     def install_docker(self, server_name: str) -> bool:
@@ -957,7 +822,9 @@ class Orchestrator:
     async def deploy_app(self, server_name: str, app_name: str,
                         config: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
-        Deploy an application to a server
+        Deploy an application to a server with automatic dependency installation (v0.2.0)
+
+        This method now automatically installs missing dependencies, just like npm/apt/pip!
 
         Args:
             server_name: Name of the server
@@ -965,9 +832,13 @@ class Orchestrator:
             config: Optional deployment configuration
 
         Returns:
-            Deployment result
+            Deployment result with dependency info
+
+        Example:
+            >>> orchestrator.deploy_app("server", "n8n")
+            # Automatically installs: postgres → redis → n8n
         """
-        logger.info(f"Deploying {app_name} to server {server_name}")
+        logger.info(f"🚀 Deploying {app_name} to server {server_name}")
 
         # Get server
         server = self.get_server(server_name)
@@ -976,6 +847,34 @@ class Orchestrator:
                 "success": False,
                 "error": f"Server {server_name} not found"
             }
+
+        # v0.2.0: Resolve dependencies using AppRegistry (YAML-based)
+        try:
+            install_order = self.app_registry.resolve_dependencies(app_name)
+            logger.info(f"📦 Dependency resolution: {' → '.join(install_order)}")
+        except ValueError as e:
+            return {
+                "success": False,
+                "error": f"Dependency resolution failed: {str(e)}"
+            }
+
+        # Get already-installed apps
+        installed_apps = set(server.get("applications", []))
+        logger.info(f"✅ Already installed: {installed_apps or 'none'}")
+
+        # Filter out already-installed apps
+        apps_to_install = [app for app in install_order if app not in installed_apps]
+
+        if not apps_to_install:
+            logger.info(f"✅ {app_name} already deployed!")
+            return {
+                "success": True,
+                "app": app_name,
+                "message": "Application already deployed",
+                "skipped": True
+            }
+
+        logger.info(f"📥 Installing: {' → '.join(apps_to_install)}")
 
         # Initialize Portainer if needed
         if not self.portainer:
@@ -1000,105 +899,161 @@ class Orchestrator:
         config.setdefault("admin_email", self.storage.config.get("admin_email", "admin@localhost"))
         config.setdefault("network_name", "livchat_network")
 
-        # Add generated passwords for known apps
-        if app_name == "portainer" and "admin_password" not in config:
-            portainer_password = self.storage.secrets.get_secret(f"portainer_password_{server_name}")
-            if not portainer_password:
-                # Generate alphanumeric password to avoid shell/Docker issues
-                password_gen = PasswordGenerator()
-                portainer_password = password_gen.generate_app_password("portainer", alphanumeric_only=True)
-                self.storage.secrets.set_secret(f"portainer_password_{server_name}", portainer_password)
-            config["admin_password"] = portainer_password
+        # Auto-install missing dependencies
+        installed_in_this_run = []
+        for current_app in apps_to_install:
+            logger.info(f"🔧 Installing {current_app}...")
 
-        # Load passwords for dependencies from vault
-        # This ensures apps like N8N can connect to postgres/redis
-        app_def = self.app_registry.get_app(app_name)
-        if app_def and "dependencies" in app_def:
-            for dep in app_def["dependencies"]:
-                # Load password for each dependency (postgres, redis, etc)
-                password_key = f"{dep}_password"
-                if password_key not in config:
-                    # Try to load from vault (should have been saved when dependency was deployed)
-                    dep_password = self.storage.secrets.get_secret(password_key)
-                    if dep_password:
-                        config[password_key] = dep_password
-                        logger.debug(f"Loaded {dep} password from vault for {app_name}")
+            # Prepare app-specific config
+            app_config = config.copy()
+
+            # Add generated passwords for known apps
+            if current_app == "portainer" and "admin_password" not in app_config:
+                portainer_password = self.storage.secrets.get_secret(f"portainer_password_{server_name}")
+                if not portainer_password:
+                    password_gen = PasswordGenerator()
+                    portainer_password = password_gen.generate_app_password("portainer", alphanumeric_only=True)
+                    self.storage.secrets.set_secret(f"portainer_password_{server_name}", portainer_password)
+                app_config["admin_password"] = portainer_password
+
+            # Load passwords for dependencies from vault
+            app_def = self.app_registry.get_app(current_app)
+
+            # v0.2.0: Build domain from DNS config and app's dns_prefix
+            if app_def and "dns_prefix" in app_def:
+                dns_config = server.get("dns_config", {})
+                zone_name = dns_config.get("zone_name")
+                subdomain = dns_config.get("subdomain")
+
+                if zone_name:
+                    dns_prefix = app_def["dns_prefix"]
+
+                    # Build domain: {dns_prefix}.{subdomain}.{zone_name} or {dns_prefix}.{zone_name}
+                    if subdomain:
+                        domain = f"{dns_prefix}.{subdomain}.{zone_name}"
                     else:
-                        logger.warning(f"Password for dependency '{dep}' not found in vault")
+                        domain = f"{dns_prefix}.{zone_name}"
 
-        # Create dependency resources (e.g., PostgreSQL databases) before deploying app
-        if app_def and "dependencies" in app_def:
-            for dep in app_def["dependencies"]:
-                if dep == "postgres":
-                    # Determine database name based on app
-                    # This mapping should eventually come from app definitions
-                    database_mapping = {
-                        "n8n": "n8n_queue",
-                        "chatwoot": "chatwoot_production",
-                        "grafana": "grafana",
-                        "nocodb": "nocodb"
-                    }
+                    app_config["domain"] = domain
+                    logger.info(f"Built domain for {current_app}: {domain}")
 
-                    database_name = database_mapping.get(app_name)
-                    if database_name:
-                        logger.info(f"Creating PostgreSQL database '{database_name}' for {app_name}")
+                    # Build additional DNS domains (e.g., webhook_domain for N8N)
+                    if "additional_dns" in app_def:
+                        for additional in app_def["additional_dns"]:
+                            additional_prefix = additional.get("prefix")
+                            if additional_prefix:
+                                if subdomain:
+                                    additional_domain = f"{additional_prefix}.{subdomain}.{zone_name}"
+                                else:
+                                    additional_domain = f"{additional_prefix}.{zone_name}"
 
-                        # Get server connection info
-                        server_ip = server.get("ip")
-                        ssh_key_name = server.get("ssh_key", f"{server_name}_key")
-                        ssh_key_path = str(self.ssh_manager.get_private_key_path(ssh_key_name))
+                                # Use prefix as key (e.g., "whk" → "webhook_domain")
+                                # Convention: "whk" prefix → "webhook_domain"
+                                if additional_prefix == "whk":
+                                    app_config["webhook_domain"] = additional_domain
+                                    logger.info(f"Built webhook_domain for {current_app}: {additional_domain}")
 
-                        # Get postgres password
-                        postgres_password = config.get("postgres_password")
-
-                        # Create database
-                        db_result = self.resolver.create_dependency_resources(
-                            parent_app=app_name,
-                            dependency="postgres",
-                            config={
-                                "database": database_name,
-                                "password": postgres_password
-                            },
-                            server_ip=server_ip,
-                            ssh_key=ssh_key_path
-                        )
-
-                        if db_result.get("success"):
-                            logger.info(f"✅ Database '{database_name}' created successfully")
+            if app_def and "dependencies" in app_def:
+                for dep in app_def["dependencies"]:
+                    password_key = f"{dep}_password"
+                    if password_key not in app_config:
+                        dep_password = self.storage.secrets.get_secret(password_key)
+                        if dep_password:
+                            app_config[password_key] = dep_password
+                            logger.debug(f"Loaded {dep} password from vault for {current_app}")
                         else:
-                            logger.warning(f"⚠️ Failed to create database: {db_result.get('error')}")
-                            # Continue anyway - database might already exist
+                            logger.warning(f"Password for dependency '{dep}' not found in vault")
 
-        # Deploy the app
-        result = await self.app_deployer.deploy(server, app_name, config)
+            # Create dependency resources (e.g., PostgreSQL databases) BEFORE deploying
+            if app_def and "dependencies" in app_def:
+                for dep in app_def["dependencies"]:
+                    if dep == "postgres":
+                        # Database name mapping
+                        database_mapping = {
+                            "n8n": "n8n_queue",
+                            "chatwoot": "chatwoot_production",
+                            "grafana": "grafana",
+                            "nocodb": "nocodb"
+                        }
 
-        # Save generated passwords to vault for dependency apps
-        # This allows dependent apps (like N8N) to retrieve these passwords later
-        if result.get("success"):
-            if app_name in ["postgres", "redis"]:
-                password_key = f"{app_name}_password"
-                if password_key in config:
-                    self.storage.secrets.set_secret(password_key, config[password_key])
-                    logger.info(f"Saved {app_name} password to vault for future use by dependent apps")
+                        database_name = database_mapping.get(current_app)
+                        if database_name:
+                            logger.info(f"Creating PostgreSQL database '{database_name}' for {current_app}")
 
-        # Configure DNS if successful and Cloudflare is configured
-        if result.get("success") and self.cloudflare:
-            dns_info = server.get("dns", {})
-            if dns_info.get("zone"):
-                dns_result = await self.app_deployer.configure_dns(
-                    server, app_name, dns_info["zone"]
-                )
-                result["dns_configured"] = dns_result.get("success", False)
+                            server_ip = server.get("ip")
+                            ssh_key_name = server.get("ssh_key", f"{server_name}_key")
+                            ssh_key_path = str(self.ssh_manager.get_private_key_path(ssh_key_name))
 
-        # Update server state
-        if result.get("success"):
+                            postgres_password = app_config.get("postgres_password")
+
+                            # Create database using our method (not self.resolver anymore!)
+                            db_result = self.create_dependency_resources(
+                                parent_app=current_app,
+                                dependency="postgres",
+                                config={
+                                    "database": database_name,
+                                    "password": postgres_password
+                                },
+                                server_ip=server_ip,
+                                ssh_key=ssh_key_path
+                            )
+
+                            if db_result.get("success"):
+                                logger.info(f"✅ Database '{database_name}' created successfully")
+                            else:
+                                logger.warning(f"⚠️ Failed to create database: {db_result.get('error')}")
+
+            # Deploy the current app
+            result = await self.app_deployer.deploy(server, current_app, app_config)
+
+            if not result.get("success"):
+                return {
+                    "success": False,
+                    "error": f"Failed to deploy dependency '{current_app}': {result.get('error')}",
+                    "installed_before_failure": installed_in_this_run
+                }
+
+            # Save generated passwords to vault for dependency apps
+            if current_app in ["postgres", "redis"]:
+                password_key = f"{current_app}_password"
+                if password_key in app_config:
+                    self.storage.secrets.set_secret(password_key, app_config[password_key])
+                    logger.info(f"Saved {current_app} password to vault for future use")
+
+                # Wait for database containers to be fully ready before proceeding
+                logger.info(f"⏳ Waiting for {current_app} container to be fully ready...")
+                import time
+                time.sleep(15)  # Give container time to initialize and become healthy
+                logger.info(f"✅ {current_app} should be ready now")
+
+            # Configure DNS if successful and Cloudflare is configured
+            if self.cloudflare:
+                dns_info = server.get("dns", {})
+                if dns_info.get("zone"):
+                    dns_result = await self.app_deployer.configure_dns(
+                        server, current_app, dns_info["zone"]
+                    )
+                    if dns_result.get("success"):
+                        logger.info(f"✅ DNS configured for {current_app}")
+
+            # Update server state
             apps = server.get("applications", [])
-            if app_name not in apps:
-                apps.append(app_name)
+            if current_app not in apps:
+                apps.append(current_app)
                 server["applications"] = apps
                 self.storage.state.update_server(server_name, server)
 
-        return result
+            installed_in_this_run.append(current_app)
+            logger.info(f"✅ {current_app} deployed successfully!")
+
+        return {
+            "success": True,
+            "app": app_name,
+            "message": f"Successfully deployed {app_name} with dependencies",
+            "dependencies_resolved": install_order,
+            "apps_installed": installed_in_this_run,
+            "already_installed": list(installed_apps)
+        }
 
     def list_available_apps(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
         """
@@ -1165,4 +1120,4 @@ class Orchestrator:
 # Compatibility alias for migration period
 LivChatSetup = Orchestrator
 
-__all__ = ["Orchestrator", "DependencyResolver", "LivChatSetup"]
+__all__ = ["Orchestrator", "LivChatSetup"]

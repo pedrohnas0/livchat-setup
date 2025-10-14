@@ -299,59 +299,63 @@ class ServerSetup:
     ]
 
     # MUDANÇA v0.2.0: Traefik/Portainer NÃO são parte do setup!
-    # São deployados via deploy-app como bundle "base-infrastructure"
+    # São deployados via deploy-app como bundle "infrastructure"
 ```
 
-#### **Dependency Resolver** [DECIDIDO - NOVO]
+#### **App Registry** [DECIDIDO - FONTE ÚNICA DE DEPENDÊNCIAS]
 ```python
-class DependencyResolver:
-    """Sistema inteligente de resolução de dependências"""
+class AppRegistry:
+    """
+    Sistema centralizado de gerenciamento de apps e dependências
 
-    def resolve_install_order(self, apps: List[str]) -> List[str]:
+    FONTE ÚNICA DE VERDADE: Todas as definições de apps vêm dos YAMLs
+    """
+
+    def load_definitions(self, directory: str):
+        """Carrega todas as apps de apps/definitions/*.yaml"""
+        # Lê YAMLs e popula self.apps
+
+    def resolve_dependencies(self, app_name: str) -> List[str]:
         """
-        Exemplo: [n8n] -> [postgres, redis, n8n]
+        Resolve ordem de instalação baseado em dependências dos YAMLs
+
+        Exemplo:
+            Input: "n8n"
+            Output: ["postgres", "redis", "n8n"]
+
+        Features:
+        - Lê dependências dos YAMLs (fonte única)
+        - Resolve recursivamente
+        - Detecta dependências circulares
+        - Retorna ordem correta de instalação
         """
 
-    def validate_dependencies(self, app: AppDefinition) -> ValidationResult:
-        """Verifica se todas as dependências podem ser satisfeitas"""
+    def generate_compose(self, app_name: str, config: Dict) -> str:
+        """Gera docker-compose.yml a partir do YAML da app"""
 
-    def configure_dependency(self, parent_app: str, dependency: str):
-        """
-        Configura dependência para app pai
-        Ex: Criar banco 'n8n_queue' no postgres
-        """
-```
-
-#### **App Registry** [DECIDIDO]
-```python
 @dataclass
 class AppDefinition:
+    """Definição de app carregada do YAML"""
     name: str
     version: str
     deploy_method: str  # "ansible" for infrastructure, "portainer" for apps
-    dependencies: List[AppDependency]
+    dependencies: List[str]  # ← Lido do YAML!
     requirements: ResourceRequirements
     environment: Dict[str, str]
     health_check: HealthCheckConfig
     post_install_hooks: List[PostInstallHook]
 
-    # Exemplo: N8N
-    example = {
-        "name": "n8n",
-        "deploy_method": "portainer",  # Deployed via Portainer API
-        "dependencies": [
-            {"name": "postgres", "config": {"database": "n8n_queue"}},
-            {"name": "redis", "config": {"db": 1}}
-        ],
-        "requirements": {"min_ram_mb": 1024, "min_cpu_cores": 1}
-    }
-
-    # Exemplo: Traefik
-    infrastructure_example = {
-        "name": "traefik",
-        "deploy_method": "ansible",  # Deployed via Ansible playbook
-        "compose": "...",  # Docker compose definition inline
-    }
+# Exemplo de YAML (apps/definitions/applications/n8n.yaml):
+"""
+name: n8n
+version: "1.0.0"
+deploy_method: portainer
+dependencies:          # ← FONTE ÚNICA DE VERDADE
+  - postgres
+  - redis
+requirements:
+  min_ram_mb: 1024
+"""
 ```
 
 #### **Post-Deploy Configuration** [DECIDIDO - NOVO]
@@ -373,17 +377,19 @@ class PostDeployConfiguration:
         """
 ```
 
-### 4.2 Dependencies Map
+### 4.2 Dependencies Map [v0.2.0 ATUALIZADO]
 
 ```
 Core Orchestrator
     ├── Storage Manager (persistência unificada)
-    │   ├── ConfigStore (YAML)
-    │   ├── StateStore (JSON)
+    │   ├── StateStore (JSON) - PRIMARY
     │   └── SecretsStore (Vault)
     ├── SSH Manager
     │   └── Storage Manager (para vault)
-    ├── Dependency Resolver (parte do orchestrator.py)
+    ├── App Registry (resolve dependências dos YAMLs) ← FONTE ÚNICA
+    │   └── App Definitions (YAML files)
+    ├── App Deployer
+    │   └── App Registry (para resolver deps)
     ├── Server Setup
     │   └── Ansible Runner
     ├── Ansible Runner
@@ -397,23 +403,62 @@ Core Orchestrator
     └── API Server (FastAPI)
         └── Routes
 
-MCP Gateway → API Server → Core Orchestrator
+MCP Gateway → API Server → Core Orchestrator → App Registry (YAMLs)
+```
+
+**Fluxo de Dependências:**
+```
+User Request (via MCP)
+    ↓
+API Server
+    ↓
+Orchestrator.deploy_app("n8n")
+    ↓
+AppRegistry.resolve_dependencies("n8n")  ← Lê YAMLs!
+    ↓
+["postgres", "redis", "n8n"]  ← Ordem correta
+    ↓
+Deploy automático de cada app
 ```
 
 ## 5. Key Features & Requirements
 
-### 5.1 Dependency Resolution [DECIDIDO]
+### 5.1 Dependency Resolution [DECIDIDO - v0.2.0 ATUALIZADO]
 ```python
-# Sistema inspirado em package managers
-dependencies = {
-    "n8n": ["postgres", "redis"],
-    "chatwoot": ["postgres", "redis", "sidekiq"],
-    "wordpress": ["mysql"],
-}
+# Sistema inspirado em package managers (npm, apt, pip)
+# FONTE ÚNICA: YAMLs definem todas as dependências
 
-# Resolução automática de ordem
-# Input: ["n8n", "wordpress"]
-# Output: ["postgres", "redis", "mysql", "n8n", "wordpress"]
+# Exemplo de YAML (apps/definitions/applications/n8n.yaml):
+"""
+name: n8n
+dependencies:
+  - postgres
+  - redis
+"""
+
+# Uso no código:
+app_registry = AppRegistry()
+app_registry.load_definitions("apps/definitions/")
+
+# Resolução automática via AppRegistry
+dependencies = app_registry.resolve_dependencies("n8n")
+# Output: ["postgres", "redis", "n8n"]  ← Lido do YAML!
+
+# Deploy automático:
+orchestrator.deploy_app("server-name", "n8n")
+# → Sistema detecta que postgres e redis não estão instalados
+# → Instala automaticamente: postgres → redis → n8n
+# → "Just works!" igual npm install
+```
+
+**Fluxo Completo:**
+```
+1. User: deploy-app(app_name="n8n")
+2. AppRegistry lê n8n.yaml → dependencies: [postgres, redis]
+3. AppRegistry.resolve_dependencies("n8n") → ["postgres", "redis", "n8n"]
+4. Orchestrator filtra apps já instaladas
+5. Orchestrator instala apps faltantes na ordem correta
+6. Resultado: postgres + redis + n8n deployados e funcionando
 ```
 
 ### 5.2 Multi-Server Management [DECIDIDO]
@@ -499,7 +544,7 @@ class Application:
         "zone_name": "livchat.ai",     // OBRIGATÓRIO no setup
         "subdomain": "lab"              // OPCIONAL
       },
-      "applications": ["base-infrastructure", "n8n"]
+      "applications": ["infrastructure", "n8n"]
     }
   ]
 }
@@ -616,7 +661,7 @@ LivChatSetup/
 
 3. **`orchestrator.py` explícito**: Lógica principal fora de __init__.py
    - __init__.py apenas para exports públicos (padrão Python)
-   - Inclui DependencyResolver (intimamente relacionado)
+   - Coordena AppRegistry para resolução de dependências
    - Fácil de encontrar o código principal
 
 4. **Separação por tipo de conteúdo**:
@@ -675,7 +720,7 @@ tools = [
     "delete-server",           // Destruir servidor
     "update-server-dns",       // Ajustar DNS pós-setup (v0.2.0 NEW)
     "list-apps",               // Catálogo de apps
-    "deploy-app",              // Instalar app (valida base-infrastructure + DNS)
+    "deploy-app",              // Instalar app (valida infrastructure + DNS)
     "undeploy-app",            // Desinstalar app
     "list-deployed-apps",      // Apps instaladas no servidor
     "get-job-status",          // Status do job assíncrono

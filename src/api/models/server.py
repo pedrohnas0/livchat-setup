@@ -30,19 +30,24 @@ class ServerCreateRequest(BaseModel):
 
 
 class ServerSetupRequest(BaseModel):
-    """Request to setup a server"""
-    install_docker: bool = Field(True, description="Install Docker")
-    init_swarm: bool = Field(True, description="Initialize Docker Swarm")
-    deploy_traefik: bool = Field(True, description="Deploy Traefik reverse proxy")
-    deploy_portainer: bool = Field(True, description="Deploy Portainer")
+    """Request to setup a server (v0.2.0: DNS now required)"""
+    # Infrastructure configuration
+    ssl_email: str = Field("admin@example.com", description="Email for Let's Encrypt SSL certificates")
+    network_name: str = Field("livchat_network", description="Docker Swarm overlay network name")
+    timezone: str = Field("America/Sao_Paulo", description="Server timezone")
+
+    # DNS configuration (v0.2.0: REQUIRED)
+    zone_name: str = Field(..., min_length=3, description="DNS zone/domain registered in Cloudflare (REQUIRED)")
+    subdomain: Optional[str] = Field(None, description="Subdomain prefix (optional, ex: 'lab', 'dev', 'prod')")
 
     class Config:
         json_schema_extra = {
             "example": {
-                "install_docker": True,
-                "init_swarm": True,
-                "deploy_traefik": True,
-                "deploy_portainer": True
+                "ssl_email": "admin@example.com",
+                "network_name": "livchat_network",
+                "timezone": "America/Sao_Paulo",
+                "zone_name": "livchat.ai",
+                "subdomain": "lab"
             }
         }
 

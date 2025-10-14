@@ -27,6 +27,9 @@ class AppDefinition:
     health_check: Dict[str, Any] = field(default_factory=dict)
     dns_prefix: Optional[str] = None
     additional_dns: List[Dict[str, str]] = field(default_factory=list)
+    # v0.2.0: Bundle support
+    required_by_all_apps: bool = False  # If True, this app is required for all other apps
+    components: List[str] = field(default_factory=list)  # List of apps in bundle (e.g., ['traefik', 'portainer'])
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AppDefinition":
@@ -35,7 +38,8 @@ class AppDefinition:
         known_fields = {
             "name", "category", "version", "description",
             "ports", "volumes", "environment", "dependencies",
-            "deploy", "health_check", "dns_prefix", "additional_dns"
+            "deploy", "health_check", "dns_prefix", "additional_dns",
+            "required_by_all_apps", "components"  # v0.2.0: Bundle support
         }
         filtered_data = {k: v for k, v in data.items() if k in known_fields}
         return cls(**filtered_data)
@@ -54,7 +58,9 @@ class AppDefinition:
             "deploy": self.deploy,
             "health_check": self.health_check,
             "dns_prefix": self.dns_prefix,
-            "additional_dns": self.additional_dns
+            "additional_dns": self.additional_dns,
+            "required_by_all_apps": self.required_by_all_apps,  # v0.2.0
+            "components": self.components  # v0.2.0
         }
 
 
@@ -454,3 +460,33 @@ class AppRegistry:
             yaml.dump(catalog, f, default_flow_style=False)
 
         logger.info(f"Catalog saved to {file_path}")
+
+    def is_bundle(self, app_name: str) -> bool:
+        """
+        Check if app is a bundle (has components)
+
+        Args:
+            app_name: Application name
+
+        Returns:
+            True if app is a bundle
+        """
+        app = self.get_app(app_name)
+        if not app:
+            return False
+        return len(app.get("components", [])) > 0
+
+    def is_required_by_all(self, app_name: str) -> bool:
+        """
+        Check if app is required by all other apps (v0.2.0)
+
+        Args:
+            app_name: Application name
+
+        Returns:
+            True if app is required for all deployments
+        """
+        app = self.get_app(app_name)
+        if not app:
+            return False
+        return app.get("required_by_all_apps", False)

@@ -598,3 +598,437 @@ admin_email: "team@livchat.ai"
 ---
 
 **Última Atualização:** 2025-10-14 03:30 UTC
+
+---
+
+## 🐛 Problema: Progresso Estagnado Durante Setup (v0.2.0 Testing)
+
+### Observação em Teste Real
+
+**Job:** `setup_server-0786cf63` (servidor v020-test)
+**Duração:** ~5min 17s (09:22:53 → 09:28:10)
+**Progresso Observado:**
+```
+Step 1/4: Starting setup for v020-test with DNS livchat.ai/lab [0%]
+   ... 5 minutos de silêncio ...
+Step 4/4: Finalizing server setup [100%]
+```
+
+**Problema:** Steps 2 e 3 nunca apareceram! Progresso pulou direto de 0% → 100%.
+
+### Análise da Causa Raiz
+
+#### 1. Código do Executor (server_executors.py:68-142)
+```python
+async def execute_setup_server(job: Job, orchestrator: Orchestrator):
+    # Linha 116: Define Step 1/4
+    job.advance_step(1, 4, f"Starting setup for {server_name}{dns_info}")
+
+    # Linhas 118-134: BLOQUEIO por 5+ minutos
+    result = await loop.run_in_executor(None, setup_func)
+    # Durante este await, NENHUM advance_step() é chamado!
+
+    # Linha 137: Pula direto para Step 4/4
+    job.advance_step(4, 4, "Finalizing server setup")
+```
+
+**Problema:** O executor chama Step 1, depois AGUARDA de forma bloqueante o `orchestrator.setup_server()` completar (5+ minutos), e só então salta direto para Step 4. **Steps 2 e 3 não existem no código!**
+
+#### 2. Sistema de Auto-Incremento Não Funciona
+
+**job_manager.py:147-176** - Método `update_progress_with_time()` implementado:
+```python
+def update_progress_with_time(self):
+    """
+    Update progress based on elapsed time in current step
+
+    Progress grows gradually but never exceeds the threshold for the next step.
+    """
+    if self.step_start_time and self.total_steps > 0:
+        # Calcula incremento baseado em tempo...
+        elapsed = (datetime.utcnow() - self.step_start_time).total_seconds()
+        # ...
+```
+
+**Problema:** Este método **NUNCA é chamado por ninguém!**
+
+```bash
+$ grep -r "update_progress_with_time" src/
+src/job_manager.py:147:    def update_progress_with_time(self):
+# Apenas a definição, sem nenhuma chamada!
+```
+
+#### 3. Comentário Enganoso no Código
+
+**server_executors.py:90-93:**
+```python
+# Note: The actual setup runs as a blocking Ansible execution. Future improvement
+# would be to add progress callbacks from server_setup.full_setup() to report
+# each step in real-time. For now, we show step 1/4 during execution and jump
+# to 4/4 on completion. Time-based progress increment provides smooth updates.
+```
+
+**Mentira:** "Time-based progress increment provides smooth updates" - **NÃO PROVÊ!** O método existe mas nunca é chamado.
+
+### Soluções Possíveis
+
+#### Solução A: Implementar Loop de Auto-Incremento (Recomendada)
+
+**job_executor.py** - Adicionar task periódica que chama `update_progress_with_time()` em jobs rodando:
+
+```python
+# Em JobExecutor.__init__():
+async def _progress_updater_task(self):
+    """Background task que atualiza progresso periodicamente"""
+    while True:
+        await asyncio.sleep(10)  # A cada 10 segundos
+
+        for job in self.job_manager.jobs.values():
+            if job.status == JobStatus.RUNNING:
+                job.update_progress_with_time()
+                await self.job_manager.save_to_storage()
+
+# Start task:
+asyncio.create_task(self._progress_updater_task())
+```
+
+**Prós:**
+- ✅ Progresso cresce suavemente durante steps longos
+- ✅ Não precisa modificar orchestrator/server_setup
+- ✅ Funciona para TODOS os jobs automaticamente
+
+**Contras:**
+- ⚠️ Progresso ainda não mostra Steps 2 e 3 (só cresce dentro de Step 1)
+
+#### Solução B: Adicionar Callbacks ao Orchestrator (Mais Trabalhosa)
+
+**orchestrator.py:setup_server()** - Passar callback para reportar progresso:
+
+```python
+def setup_server(self, ..., progress_callback=None):
+    # Step 1: Base setup
+    if progress_callback:
+        progress_callback(2, 4, "Base system setup")
+    self.server_setup.full_setup(...)
+
+    # Step 2: Docker
+    if progress_callback:
+        progress_callback(3, 4, "Installing Docker and Swarm")
+    # ...
+```
+
+**Prós:**
+- ✅ Steps 2 e 3 aparecem no momento certo
+- ✅ Progresso preciso reflete etapas reais
+
+**Contras:**
+- ⚠️ Precisa modificar orchestrator, server_setup, ansible_executor
+- ⚠️ Callback precisa ser thread-safe (orchestrator roda em executor)
+
+#### Solução C: Híbrida (Melhor UX)
+
+Combinar A + B:
+1. Background task atualiza progresso gradualmente (Solução A)
+2. Callbacks reportam steps intermediários quando disponível (Solução B)
+
+**Resultado:**
+```
+Step 1/4: Starting setup [0%]
+Step 1/4: Starting setup [5%]  ← auto-increment
+Step 1/4: Starting setup [10%] ← auto-increment
+Step 2/4: Base system setup [25%]  ← callback
+Step 2/4: Base system setup [30%] ← auto-increment
+Step 3/4: Installing Docker [50%]  ← callback
+Step 3/4: Installing Docker [60%] ← auto-increment
+Step 4/4: Finalizing [100%]
+```
+
+### Decisão de Implementação
+
+**Para v0.2.0:** Implementar **Solução A** (loop auto-incremento)
+- Rápido de implementar
+- Resolve problema imediato
+- Não quebra nada existente
+
+**Para v0.3.0:** Adicionar **Solução B** (callbacks)
+- Melhoria incremental
+- Progress mais preciso
+- Refatoração mais profunda
+
+---
+
+## 🐛 Problema: Job Marcado como Sucesso com Erro (v0.2.0 Testing)
+
+### Observação em Teste Real
+
+**Job:** `deploy_app-540b8116` (postgres em v020-test)
+**Resultado:**
+```json
+{
+  "success": false,
+  "error": "Failed to initialize Portainer client"
+}
+```
+**Status do Job:** ✅ **COMPLETED** (deveria ser FAILED!)
+
+### Análise da Causa Raiz
+
+#### 1. Validação Funcionando Corretamente
+
+**app_deployer.py:61-72** - Validação existe e retorna erro:
+```python
+# v0.2.0: Validation 2 - base-infrastructure must be deployed
+if app_name != "base-infrastructure":
+    apps = server.get("applications", [])
+    if "base-infrastructure" not in apps:
+        return {
+            "success": False,
+            "app": app_name,
+            "error": "Base infrastructure (Traefik + Portainer) not deployed...",
+            "hint": "Deploy base-infrastructure first..."
+        }
+```
+
+✅ **Validação está correta!** Retorna `success: false` quando base-infrastructure não está deployada.
+
+#### 2. Executor Não Verifica Resultado
+
+**app_executors.py:51-65** - Executor retorna result sem verificar:
+```python
+result = await orchestrator.deploy_app(
+    server_name=server_name,
+    app_name=app_name,
+    config=config
+)
+
+# Update progress
+job.update_progress(80, f"{app_name} deployed successfully")  # ← MENTIRA!
+job.update_progress(100, "App deployment completed")
+
+return result  # ← Retorna mesmo se success=false
+```
+
+❌ **Problema:** Executor marca progresso como "deployed successfully" e retorna result MESMO quando `result["success"] == false`.
+
+#### 3. Job Manager Não Verifica Success Flag
+
+**job_manager.py:359-362** - Marca completed sem verificar result:
+```python
+# Execute task (logs are automatically captured!)
+result = await task_func(job)
+
+# Mark as completed
+job.mark_completed(result=result)  # ← SEMPRE marca como COMPLETED!
+```
+
+❌ **Problema:** `run_job()` marca job como COMPLETED quando task_func não lança exceção, **independente do conteúdo de result**.
+
+### Soluções Possíveis
+
+#### Solução A: Modificar Executors para Lançar Exceção (Recomendada)
+
+**app_executors.py:51-65** - Verificar result e lançar exceção:
+```python
+result = await orchestrator.deploy_app(
+    server_name=server_name,
+    app_name=app_name,
+    config=config
+)
+
+# Check if deployment failed
+if not result.get("success", True):
+    error_msg = result.get("error", "Unknown deployment error")
+    hint = result.get("hint", "")
+    full_error = f"{error_msg}\n{hint}" if hint else error_msg
+    raise RuntimeError(full_error)
+
+# Update progress (only if successful)
+job.update_progress(80, f"{app_name} deployed successfully")
+job.update_progress(100, "App deployment completed")
+
+return result
+```
+
+**Prós:**
+- ✅ Mantém lógica de negócio no executor
+- ✅ Não precisa modificar job_manager.py
+- ✅ Funcionará com todos os executors existentes
+- ✅ Exceção será capturada por job_manager e marcará job como FAILED
+
+**Contras:**
+- ⚠️ Precisa modificar TODOS os executors que retornam dict com "success"
+
+#### Solução B: Modificar Job Manager para Verificar Success (Mais Genérica)
+
+**job_manager.py:359-368** - Verificar result antes de marcar completed:
+```python
+# Execute task
+result = await task_func(job)
+
+# Check if result indicates failure (dict with success: false)
+if isinstance(result, dict) and result.get("success") == False:
+    error_msg = result.get("error", "Operation failed")
+    hint = result.get("hint", "")
+    full_error = f"{error_msg}\n{hint}" if hint else error_msg
+    job.mark_completed(error=full_error)
+else:
+    # Mark as completed successfully
+    job.mark_completed(result=result)
+```
+
+**Prós:**
+- ✅ Solução centralizada (um único lugar)
+- ✅ Funciona automaticamente para todos os executors
+- ✅ Não precisa modificar executors existentes
+
+**Contras:**
+- ⚠️ Assume que todos os results que retornam dict usam "success" flag
+- ⚠️ Pode causar problema se algum executor retornar dict sem "success"
+
+#### Solução C: Híbrida (Melhor Prática)
+
+Combinar A + B:
+1. **job_manager.py** verifica `success: false` em results tipo dict (Solução B)
+2. **Executors** lançam exceção explícita para erros críticos (Solução A)
+
+**Resultado:**
+- Validações de negócio retornam `success: false` → job marcado como FAILED automaticamente
+- Erros inesperados (exceptions) → job marcado como FAILED pelo try/except existente
+- Melhor de ambos os mundos
+
+### Decisão de Implementação
+
+**Para v0.2.0:** Implementar **Solução B** (modificar job_manager)
+- Correção centralizada
+- Resolve problema imediatamente
+- Não quebra nada existente
+- Menos código para mudar
+
+**Aplicar em:**
+- `src/job_manager.py:359-368`
+
+**Teste:**
+1. Tentar deploy postgres sem base-infrastructure → Job deve ser marcado como FAILED
+2. Verificar que erro aparece corretamente no job status
+3. Confirmar que hint aparece nos logs
+
+---
+
+## 🔄 Problema: DependencyResolver Redundante (v0.2.0 Code Review)
+
+### Descoberta
+
+**Redundância Crítica:** Existem DUAS implementações de resolução de dependências:
+
+1. **AppRegistry.resolve_dependencies()** (`app_registry.py:181-225`)
+   - ✅ Lê dependências dos YAMLs (fonte única de verdade)
+   - ✅ Recursivo com detecção de ciclos
+   - ✅ Retorna ordem correta: `["postgres", "redis", "n8n"]`
+   - ✅ Já é usado em `app_deployer.py:92`
+
+2. **DependencyResolver class** (`orchestrator.py:35-264`)
+   - ❌ Dict hardcoded: `{"n8n": ["postgres", "redis"]}`
+   - ❌ Duplica lógica que já existe no AppRegistry
+   - ❌ Precisa manter sincronizado manualmente com YAMLs
+   - ❌ NÃO é usado no fluxo principal de deploy!
+   - ⚠️ TEM método útil: `create_dependency_resources()` (cria bancos postgres)
+
+### Problema
+
+```python
+# orchestrator.py:41-47 (HARDCODED!)
+self.dependencies = {
+    "n8n": ["postgres", "redis"],        # ← Duplica n8n.yaml
+    "chatwoot": ["postgres", "redis"],   # ← Duplica chatwoot.yaml
+    "wordpress": ["mysql"],              # ← Duplica wordpress.yaml
+}
+```
+
+vs
+
+```yaml
+# apps/definitions/applications/n8n.yaml (FONTE ÚNICA!)
+dependencies:
+  - postgres
+  - redis
+```
+
+**Consequências:**
+- Manutenção duplicada (atualizar em 2 lugares!)
+- Possibilidade de inconsistência (YAML diz uma coisa, dict diz outra)
+- Código mais complexo sem necessidade
+
+### Solução: Consolidar no AppRegistry
+
+**Ação 1: REMOVER DependencyResolver class**
+- Deletar linhas 35-264 do `orchestrator.py`
+- Isso remove ~230 linhas de código redundante!
+
+**Ação 2: MOVER create_dependency_resources() para Orchestrator**
+- É funcionalidade legítima (cria bancos postgres)
+- Mover como método direto do Orchestrator:
+```python
+class Orchestrator:
+    def create_dependency_resources(self, parent_app, dependency, config, server_ip, ssh_key):
+        """Create resources (databases, users, etc) for dependencies"""
+        # ... código atual ...
+```
+
+**Ação 3: IMPLEMENTAR deploy automático de dependências**
+
+**ANTES (comportamento atual):**
+```python
+async def deploy_app(self, server_name, app_name, config):
+    # NÃO instala dependências automaticamente
+    # Apenas valida base-infrastructure
+    result = await self.app_deployer.deploy(server, app_name, config)
+```
+
+**DEPOIS:**
+```python
+async def deploy_app(self, server_name, app_name, config):
+    # 1. Resolver dependências via AppRegistry (lê YAMLs)
+    dependencies = self.app_registry.resolve_dependencies(app_name)
+    # Ex: ["postgres", "redis", "n8n"]
+
+    # 2. Filtrar apps já instaladas
+    installed = server.get("applications", [])
+    to_install = [app for app in dependencies if app not in installed]
+
+    # 3. Instalar cada uma na ordem
+    for app in to_install:
+        result = await self._deploy_single_app(server, app, config)
+        if not result["success"]:
+            return {"success": False, "error": f"Failed: {app}"}
+
+    return {"success": True, "installed": to_install}
+```
+
+**Ação 4: REMOVER deploy_apps() (plural) - Método Morto**
+- `orchestrator.py:618-654` - Nunca é usado pelo MCP
+- Apenas retorna `status="planned"` (placeholder)
+- O método real é `deploy_app()` (singular)
+
+### Benefícios
+
+1. **✅ Fonte única de verdade**: YAMLs definem dependências
+2. **✅ -230 linhas de código**: Removendo DependencyResolver
+3. **✅ Menos manutenção**: Atualizar apenas YAMLs
+4. **✅ Impossível de ficar desatualizado**: Não há dict para sincronizar
+5. **✅ Deploy automático**: User pede N8N, sistema instala postgres + redis + n8n
+6. **✅ Mais elegante**: Usa a arquitetura já existente
+
+### Decisão de Implementação
+
+**Para v0.2.0:** Refatorar agora
+- Remoção de código redundante
+- Implementar deploy automático de dependências
+- Testar com workflow completo (base-infrastructure → postgres → n8n)
+
+**Aplicar em:**
+- `src/orchestrator.py` (remover DependencyResolver, adicionar auto-deploy)
+- Testar workflow completo
+
+---
+
+**Última Atualização:** 2025-10-14 13:00 UTC

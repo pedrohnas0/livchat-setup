@@ -46,6 +46,31 @@ class AppDeployer:
         logger.info(f"Deploying {app_name} to server {server['name']}")
 
         try:
+            # v0.2.0: Validation 1 - DNS must be configured
+            dns_config = server.get("dns_config", {})
+            if not dns_config.get("zone_name"):
+                return {
+                    "success": False,
+                    "app": app_name,
+                    "error": "DNS not configured on server. DNS is required for all app deployments.",
+                    "hint": "Run setup-server with zone_name parameter first."
+                }
+
+            logger.info(f"DNS validation passed for {server['name']}: {dns_config}")
+
+            # v0.2.0: Validation 2 - infrastructure must be deployed (except if deploying it itself)
+            if app_name != "infrastructure":
+                apps = server.get("applications", [])
+                if "infrastructure" not in apps:
+                    return {
+                        "success": False,
+                        "app": app_name,
+                        "error": "Infrastructure (Traefik + Portainer) not deployed. This is required for all applications.",
+                        "hint": "Deploy infrastructure first: deploy-app(server_name='...', app_name='infrastructure')"
+                    }
+
+                logger.info(f"Infrastructure validation passed for {server['name']}")
+
             # Get app definition
             app = self.registry.get_app(app_name)
             if not app:

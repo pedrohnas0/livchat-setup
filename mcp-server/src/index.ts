@@ -23,8 +23,8 @@ import {
   CreateServerInputSchema,
   ListServersTool,
   ListServersInputSchema,
-  ConfigureServerDNSTool,
-  ConfigureServerDNSInputSchema,
+  UpdateServerDNSTool,  // v0.2.0: replaces ConfigureServerDNSTool
+  UpdateServerDNSInputSchema,
   SetupServerTool,
   SetupServerInputSchema,
   DeleteServerTool,
@@ -55,7 +55,7 @@ const apiClient = new APIClient(API_URL, API_KEY);
 // Create MCP server instance
 const server = new McpServer({
   name: "livchat-setup",
-  version: "1.0.0",
+  version: "0.2.0",  // v0.2.0: DNS-first architecture
 });
 
 // Initialize all tool handlers
@@ -68,7 +68,7 @@ const tools = {
   // Servers (5 tools)
   createServer: new CreateServerTool(apiClient),
   listServers: new ListServersTool(apiClient),
-  configureServerDns: new ConfigureServerDNSTool(apiClient),
+  updateServerDns: new UpdateServerDNSTool(apiClient),  // v0.2.0: replaces configureServerDns
   setupServer: new SetupServerTool(apiClient),
   deleteServer: new DeleteServerTool(apiClient),
   // Apps (4 tools)
@@ -118,15 +118,15 @@ server.tool(
 );
 
 server.tool(
-  "configure-server-dns",
-  "Configura DNS do servidor (zone_name + subdomain). Apps usarão automaticamente em deploys. Configure Cloudflare em manage-secrets antes.",
-  ConfigureServerDNSInputSchema.shape,
-  async (input) => ({ content: [{ type: "text", text: await tools.configureServerDns.execute(input as any) }] })
+  "update-server-dns",
+  "Atualiza DNS do servidor (zone_name + subdomain). Use após setup se precisar alterar DNS. Apps podem precisar redeploy. Configure Cloudflare em manage-secrets antes.",
+  UpdateServerDNSInputSchema.shape,
+  async (input) => ({ content: [{ type: "text", text: await tools.updateServerDns.execute(input as any) }] })
 );
 
 server.tool(
   "setup-server",
-  "Configura servidor: sistema, Docker, Swarm, Traefik e Portainer. Use configure-server-dns antes para SSL automático. Retorna job_id.",
+  "Configura servidor: sistema, Docker, Swarm e DNS (zone_name OBRIGATÓRIO). Traefik/Portainer NÃO inclusos - deploy base-infrastructure após. Retorna job_id.",
   SetupServerInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.setupServer.execute(input as any) }] })
 );
@@ -189,7 +189,7 @@ async function main() {
   await server.connect(transport);
 
   // Log to stderr (stdout is reserved for MCP protocol)
-  console.error("LivChatSetup MCP Server v1.0.0");
+  console.error("LivChatSetup MCP Server v0.2.0 (DNS-first architecture)");
   console.error(`API URL: ${API_URL}`);
   console.error(`API Key: ${API_KEY ? "***" + API_KEY.slice(-4) : "not set"}`);
   console.error("Server ready on stdio");

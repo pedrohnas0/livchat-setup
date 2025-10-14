@@ -701,14 +701,16 @@ class ServerSetup:
             )
 
         # Define setup steps in order
+        # v0.2.0: Traefik and Portainer are NO LONGER deployed during setup
+        # They must be deployed separately as "base-infrastructure" app
         steps = [
             ("base-setup", lambda: self.setup_base(server)),
             ("docker-install", lambda: self.install_docker(server)),
             ("swarm-init", lambda: self.init_swarm(
                 server,
                 config.get("network_name", "livchat_network")
-            )),
-            ("traefik-deploy", lambda: self.deploy_traefik(server, config))
+            ))
+            # Traefik/Portainer deployment removed - use deploy-app instead
         ]
 
         completed_steps = []

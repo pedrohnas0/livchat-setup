@@ -11,8 +11,8 @@ export {
   CreateServerInputSchema,
   ListServersTool,
   ListServersInputSchema,
-  ConfigureServerDNSTool,
-  ConfigureServerDNSInputSchema,
+  UpdateServerDNSTool,  // v0.2.0: replaces ConfigureServerDNSTool
+  UpdateServerDNSInputSchema,
   SetupServerTool,
   SetupServerInputSchema,
   DeleteServerTool,
@@ -42,7 +42,7 @@ export type { GetProviderInfoInput } from './providers.js';
 export type {
   CreateServerInput,
   ListServersInput,
-  ConfigureServerDNSInput,
+  UpdateServerDNSInput,  // v0.2.0: replaces ConfigureServerDNSInput
   SetupServerInput,
   DeleteServerInput,
 } from './servers.js';

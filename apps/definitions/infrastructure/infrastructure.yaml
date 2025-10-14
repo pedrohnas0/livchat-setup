@@ -1,0 +1,47 @@
+name: infrastructure
+version: "1.0.0"
+category: infrastructure
+description: "Essential infrastructure bundle: Traefik (reverse proxy + SSL) and Portainer (Docker management)"
+
+# v0.2.0: Bundle configuration
+# This flag indicates that ALL apps depend on this bundle
+required_by_all_apps: true
+
+# Components in this bundle
+components:
+  - traefik
+  - portainer
+
+# No dependencies - this IS the base
+dependencies: []
+
+# Deploy via Ansible (Portainer API doesn't exist yet!)
+deploy_method: ansible
+
+# Ansible playbook configuration
+ansible:
+  playbooks:
+    - traefik-deploy.yml
+    - portainer-deploy.yml
+
+# Variables for deployment
+variables:
+  ssl_email:
+    description: "Email for Let's Encrypt SSL certificates"
+    required: true
+    default: "admin@example.com"
+  network_name:
+    description: "Docker Swarm overlay network name"
+    required: false
+    default: "livchat_network"
+  timezone:
+    description: "Server timezone"
+    required: false
+    default: "America/Sao_Paulo"
+
+# Bundle-specific notes
+notes:
+  - "Must be deployed BEFORE any other application"
+  - "Traefik provides reverse proxy and SSL termination"
+  - "Portainer provides Docker Swarm management UI"
+  - "Both use Ansible for deployment (not Portainer API)"

@@ -1,10 +1,10 @@
 /**
- * Tools: Server Management (5 tools)
+ * Tools: Server Management (5 tools) - v0.2.0
  *
  * 1. create-server (async)
  * 2. list-servers
- * 3. configure-server-dns
- * 4. setup-server (async)
+ * 3. update-server-dns (v0.2.0: replaces configure-server-dns)
+ * 4. setup-server (async) - v0.2.0: DNS now required
  * 5. delete-server (async)
  */
 
@@ -50,25 +50,34 @@ export const ListServersInputSchema = z.object({
 export type ListServersInput = z.infer<typeof ListServersInputSchema>;
 
 /**
- * Schema for configure-server-dns tool
+ * Schema for update-server-dns tool (v0.2.0: replaces configure-server-dns)
  */
-export const ConfigureServerDNSInputSchema = z.object({
+export const UpdateServerDNSInputSchema = z.object({
   server_name: z.string()
     .describe('Nome do servidor'),
   zone_name: z.string()
+    .min(3)
     .describe('Domínio principal registrado no Cloudflare (ex: livchat.ai)'),
   subdomain: z.string().optional()
     .describe('Subdomain opcional (ex: lab, dev, prod). Apps usarão pattern: {app}.{subdomain}.{zone_name}'),
 });
 
-export type ConfigureServerDNSInput = z.infer<typeof ConfigureServerDNSInputSchema>;
+export type UpdateServerDNSInput = z.infer<typeof UpdateServerDNSInputSchema>;
 
 /**
- * Schema for setup-server tool
+ * Schema for setup-server tool (v0.2.0: DNS now required)
  */
 export const SetupServerInputSchema = z.object({
   server_name: z.string()
     .describe('Nome do servidor a configurar'),
+
+  // v0.2.0: DNS configuration is now REQUIRED
+  zone_name: z.string()
+    .min(3)
+    .describe('Domínio principal registrado no Cloudflare (OBRIGATÓRIO - ex: livchat.ai)'),
+  subdomain: z.string().optional()
+    .describe('Subdomain opcional (ex: lab, dev, prod). Apps usarão pattern: {app}.{subdomain}.{zone_name}'),
+
   ssl_email: z.string()
     .email()
     .default('admin@example.com')
@@ -232,19 +241,19 @@ export class ListServersTool {
 }
 
 /**
- * Tool: configure-server-dns
+ * Tool: update-server-dns (v0.2.0: replaces configure-server-dns)
  */
-export class ConfigureServerDNSTool {
+export class UpdateServerDNSTool {
   constructor(private client: APIClient) {}
 
-  async execute(input: ConfigureServerDNSInput): Promise<string> {
+  async execute(input: UpdateServerDNSInput): Promise<string> {
     try {
-      await this.client.post(`/servers/${input.server_name}/dns`, {
+      await this.client.put(`/servers/${input.server_name}/dns`, {
         zone_name: input.zone_name,
         subdomain: input.subdomain,
       });
 
-      let output = '✅ Configuração DNS associada ao servidor\n\n';
+      let output = '✅ Configuração DNS atualizada (v0.2.0)\n\n';
       output += `📦 Servidor: ${input.server_name}\n`;
       output += `🌐 Zone: ${input.zone_name}\n`;
 
@@ -257,7 +266,8 @@ export class ConfigureServerDNSTool {
         output += `   Exemplo: n8n.${input.zone_name}\n`;
       }
 
-      output += '\n💡 Aplicações deployadas neste servidor usarão esta configuração DNS automaticamente.';
+      output += '\n⚠️  Apps deployadas podem precisar ser redeployadas para usar os novos domínios.\n';
+      output += '💡 Use list-deployed-apps para ver apps que podem precisar atualização.';
 
       return output;
     } catch (error) {
@@ -267,7 +277,7 @@ export class ConfigureServerDNSTool {
 }
 
 /**
- * Tool: setup-server (ASYNC)
+ * Tool: setup-server (ASYNC) - v0.2.0
  */
 export class SetupServerTool {
   constructor(private client: APIClient) {}
@@ -277,22 +287,30 @@ export class SetupServerTool {
       const response = await this.client.post<{ job_id: string }>(
         `/servers/${input.server_name}/setup`,
         {
+          zone_name: input.zone_name,        // v0.2.0: DNS required
+          subdomain: input.subdomain,        // v0.2.0: Optional subdomain
           ssl_email: input.ssl_email,
           network_name: input.network_name,
           timezone: input.timezone,
         }
       );
 
-      let output = '✅ Setup do servidor iniciado (operação assíncrona)\n\n';
+      let output = '✅ Setup do servidor iniciado com DNS (operação assíncrona)\n\n';
       output += `🆔 Job ID: ${response.job_id}\n`;
-      output += `📦 Servidor: ${input.server_name}\n\n`;
-      output += '🔧 Etapas do setup:\n';
-      output += '   1️⃣  Atualização do sistema\n';
+      output += `📦 Servidor: ${input.server_name}\n`;
+      output += `🌐 DNS Zone: ${input.zone_name}\n`;
+      if (input.subdomain) {
+        output += `🏷️  Subdomain: ${input.subdomain}\n`;
+      }
+      output += '\n🔧 Etapas do setup (v0.2.0):\n';
+      output += '   1️⃣  Atualização do sistema e timezone\n';
       output += '   2️⃣  Instalação do Docker\n';
-      output += '   3️⃣  Inicialização do Swarm\n';
-      output += '   4️⃣  Deploy Traefik (reverse proxy)\n';
-      output += '   5️⃣  Deploy Portainer (gerenciamento)\n\n';
-      output += '⏱️  Tempo estimado: 5-10 minutos\n\n';
+      output += '   3️⃣  Inicialização do Swarm + rede overlay\n';
+      output += '   4️⃣  Configuração DNS salva no servidor\n\n';
+      output += '⚠️  IMPORTANTE: Traefik e Portainer NÃO são mais instalados automaticamente!\n';
+      output += '   Após o setup, você DEVE deployar a base-infrastructure:\n';
+      output += `   deploy-app(app_name="base-infrastructure", server_name="${input.server_name}")\n\n`;
+      output += '⏱️  Tempo estimado: 3-5 minutos\n\n';
       output += '💡 Use get-job-status para acompanhar o progresso:\n';
       output += `   get-job-status(job_id="${response.job_id}", tail_logs=50)`;
 

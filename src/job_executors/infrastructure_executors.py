@@ -84,14 +84,116 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
         }
 
     elif app_name == "traefik":
-        # Traefik is deployed during server setup, not as standalone app
-        logger.warning(f"Traefik deployment via API not yet supported (deployed during server setup)")
+        # Deploy Traefik via Ansible
+        logger.info(f"Deploying Traefik via Ansible on {server_name}")
 
+        # Build config
+        config = {}
+        if environment.get("ssl_email"):
+            config["ssl_email"] = environment["ssl_email"]
+
+        # Call orchestrator's dedicated Traefik deployment method
+        result = await asyncio.to_thread(
+            orchestrator.deploy_traefik,
+            server_name=server_name,
+            ssl_email=config.get("ssl_email")
+        )
+
+        # Update progress
+        if result:
+            job.update_progress(80, f"Traefik deployed successfully")
+
+            # Update server state to add "traefik" to applications list
+            server_data = orchestrator.get_server(server_name)
+            if server_data:
+                apps = server_data.get("applications", [])
+                if "traefik" not in apps:
+                    apps.append("traefik")
+                    server_data["applications"] = apps
+                    orchestrator.storage.state.update_server(server_name, server_data)
+                    logger.info(f"Added 'traefik' to {server_name} applications list")
+        else:
+            job.update_progress(50, f"Traefik deployment failed")
+
+        # Convert boolean result to dict format
         return {
-            "success": False,
-            "error": "Traefik is deployed automatically during server setup",
+            "success": result,
+            "message": "Traefik deployed via Ansible" if result else "Traefik deployment failed",
             "app": app_name,
-            "server": server_name
+            "server": server_name,
+            "deploy_method": "ansible"
+        }
+
+    elif app_name == "infrastructure":
+        # Deploy infrastructure bundle (Traefik + Portainer) - v0.2.0
+        logger.info(f"Deploying infrastructure bundle (Traefik + Portainer) on {server_name}")
+
+        # Step 1: Deploy Traefik
+        job.update_progress(20, "Deploying Traefik...")
+        traefik_config = {}
+        if environment.get("ssl_email"):
+            traefik_config["ssl_email"] = environment["ssl_email"]
+
+        traefik_result = await asyncio.to_thread(
+            orchestrator.deploy_traefik,
+            server_name=server_name,
+            ssl_email=traefik_config.get("ssl_email")
+        )
+
+        if not traefik_result:
+            logger.error(f"Traefik deployment failed for {server_name}")
+            return {
+                "success": False,
+                "error": "Traefik deployment failed",
+                "app": app_name,
+                "server": server_name,
+                "deploy_method": "ansible"
+            }
+
+        job.update_progress(50, "Traefik deployed, deploying Portainer...")
+
+        # Step 2: Deploy Portainer
+        portainer_config = {"environment": environment}
+        if domain:
+            portainer_config["dns_domain"] = domain
+
+        portainer_result = await asyncio.to_thread(
+            orchestrator.deploy_portainer,
+            server_name=server_name,
+            config=portainer_config
+        )
+
+        if not portainer_result:
+            logger.error(f"Portainer deployment failed for {server_name}")
+            return {
+                "success": False,
+                "error": "Portainer deployment failed (Traefik succeeded)",
+                "app": app_name,
+                "server": server_name,
+                "deploy_method": "ansible"
+            }
+
+        job.update_progress(90, "Infrastructure bundle deployed successfully")
+
+        # Update server state to add "infrastructure" to applications list
+        # This is necessary for validation in app_deployer.py
+        server_data = orchestrator.get_server(server_name)
+        if server_data:
+            apps = server_data.get("applications", [])
+            if "infrastructure" not in apps:
+                apps.append("infrastructure")
+                server_data["applications"] = apps
+                orchestrator.storage.state.update_server(server_name, server_data)
+                logger.info(f"Added 'infrastructure' to {server_name} applications list")
+
+        # Both deployed successfully
+        return {
+            "success": True,
+            "message": "Infrastructure bundle deployed successfully (Traefik + Portainer)",
+            "app": app_name,
+            "server": server_name,
+            "deploy_method": "ansible",
+            "components_deployed": ["traefik", "portainer"]
         }
 
     else:
