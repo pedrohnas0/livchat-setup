@@ -2,7 +2,7 @@
   "mcpServers": {
     "livchat-setup": {
       "command": "npx",
-      "args": ["@pedrohnas/livchat-setup-mcp@0.2.0"],
+      "args": ["@pedrohnas/livchat-setup-mcp@0.2.1"],
       "env": {
         "LIVCHAT_API_URL": "http://localhost:8000",
         "LIVCHAT_API_KEY": ""
