@@ -62,9 +62,9 @@ export class GetProviderInfoTool {
 
     let output = `✅ Overview do Provider: ${provider}\n\n`;
     output += `📊 Status: ${info.status || 'configured'}\n`;
-    output += `🔑 Token configurado: ${info.token_configured ? 'Sim' : 'Não'}\n`;
+    output += `🔑 Token configurado: ${info.configured ? 'Sim' : 'Não'}\n`;
 
-    if (!info.token_configured) {
+    if (!info.configured) {
       output += '\n⚠️  Provider não configurado!\n';
       output += '💡 Use manage-secrets para definir o token:\n';
       output += `   manage-secrets(operation="set", key="${provider}_token", value="seu_token")`;
@@ -93,8 +93,14 @@ export class GetProviderInfoTool {
 
     let output = `✅ Regiões Disponíveis (${provider}): ${regions.regions.length}\n\n`;
 
+    // Recommended region
+    const recommendedRegion = 'ash';
+
     for (const region of regions.regions) {
-      output += `🌍 ${region.name || region.id}\n`;
+      const isRecommended = (region.name || region.id) === recommendedRegion;
+      const prefix = isRecommended ? '⭐ ' : '  ';
+
+      output += `${prefix}${region.name || region.id}\n`;
 
       if (region.description) {
         output += `   📝 ${region.description}\n`;
@@ -126,8 +132,14 @@ export class GetProviderInfoTool {
 
     let output = `✅ Tipos de Servidores Disponíveis (${provider}): ${types.server_types.length}\n\n`;
 
+    // Recommended server type
+    const recommendedType = 'ccx23';
+
     for (const type of types.server_types) {
-      output += `🖥️  ${type.name || type.id}\n`;
+      const isRecommended = (type.name || type.id) === recommendedType;
+      const prefix = isRecommended ? '⭐ ' : '  ';
+
+      output += `${prefix}${type.name || type.id}\n`;
 
       if (type.description) {
         output += `   📝 ${type.description}\n`;
@@ -169,13 +181,16 @@ export class GetProviderInfoTool {
       this.getServerTypes(provider),
     ]);
 
-    let output = '═══════════════════════════════════════\n';
-    output += `📦 Informações Completas: ${provider.toUpperCase()}\n`;
-    output += '═══════════════════════════════════════\n\n';
-    output += overview + '\n\n';
-    output += '───────────────────────────────────────\n\n';
-    output += regions + '\n\n';
-    output += '───────────────────────────────────────\n\n';
+    let output = `\n📦 ${provider.toUpperCase()} - Informações Completas\n\n`;
+
+    // Recommendations section
+    output += '⭐ Configuração Recomendada\n\n';
+    output += '  Location: ash (Ashburn, VA)\n';
+    output += '  Image: debian-12\n';
+    output += '  Type: ccx23 (Dedicated CPU)\n\n';
+
+    output += overview + '\n';
+    output += regions + '\n';
     output += serverTypes;
 
     return output;

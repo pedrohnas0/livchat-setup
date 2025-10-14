@@ -70,9 +70,14 @@ def get_provider_instance(provider_name: str, orchestrator: Orchestrator) -> Any
     provider_info = PROVIDER_REGISTRY[provider_name]
     provider_class = provider_info["class"]
 
-    # Get API token from config
-    token_key = f"providers.{provider_name}.token"
-    api_token = orchestrator.storage.config.get(token_key)
+    # Get API token from vault (encrypted storage)
+    api_token = orchestrator.storage.secrets.get_secret(f"{provider_name}_token")
+
+    if not api_token:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Provider '{provider_name}' is not configured. Use manage-secrets to set {provider_name}_token"
+        )
 
     # Create provider instance
     try:
@@ -88,8 +93,7 @@ def get_provider_instance(provider_name: str, orchestrator: Orchestrator) -> Any
 
 def check_provider_configured(provider_name: str, orchestrator: Orchestrator) -> bool:
     """Check if provider has credentials configured"""
-    token_key = f"providers.{provider_name}.token"
-    api_token = orchestrator.storage.config.get(token_key)
+    api_token = orchestrator.storage.secrets.get_secret(f"{provider_name}_token")
     return api_token is not None and api_token != ""
 
 

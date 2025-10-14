@@ -146,16 +146,38 @@ export class ListServersTool {
         return this.formatServerDetails(server);
       }
 
-      // List all servers
+      // List all servers (from state)
       const servers = await this.client.get<{ servers: any[] }>('/servers');
 
       if (!servers.servers || servers.servers.length === 0) {
         return '✅ Nenhum servidor encontrado.\n\n💡 Use create-server para criar seu primeiro servidor.';
       }
 
-      let output = `✅ Servidores Encontrados: ${servers.servers.length}\n\n`;
-
+      // CRITICAL: Validate each server with provider to update state
+      // This ensures we don't show servers that were deleted externally
+      const validatedServers = [];
       for (const server of servers.servers) {
+        try {
+          // Verify each server exists in provider
+          const validated = await this.client.get<any>(`/servers/${server.name}?verify_provider=true`);
+          validatedServers.push(validated);
+        } catch (error: any) {
+          // Server was deleted externally - skip it
+          if (error.status === 404) {
+            continue;
+          }
+          // Other errors - include server with warning
+          validatedServers.push({ ...server, status: `${server.status} (verification failed)` });
+        }
+      }
+
+      if (validatedServers.length === 0) {
+        return '✅ Nenhum servidor ativo encontrado.\n\n💡 Alguns servidores podem ter sido deletados externamente.';
+      }
+
+      let output = `✅ Servidores Encontrados: ${validatedServers.length}\n\n`;
+
+      for (const server of validatedServers) {
         output += `📦 ${server.name}\n`;
         output += `   🆔 ID: ${server.id}\n`;
         output += `   🌐 IP: ${server.ip_address || 'N/A'}\n`;

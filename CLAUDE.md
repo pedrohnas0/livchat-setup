@@ -149,6 +149,85 @@ class StorageManager:
     ]
 ```
 
+#### 🔐 **Storage Decision Matrix** [DECIDIDO]
+
+**REGRA DE OURO**: Se é segredo/credencial, vai no VAULT. Se é preferência/configuração, vai no CONFIG.
+
+| Tipo de Dado | Local | Motivo | Exemplo |
+|--------------|-------|--------|---------|
+| **API Tokens** | `credentials.vault` | 🔒 Sensível | `hetzner_token`, `cloudflare_api_key` |
+| **Passwords** | `credentials.vault` | 🔒 Sensível | `db_password`, `admin_pass` |
+| **SSH Private Keys** | `credentials.vault` | 🔒 Sensível | `server_ssh_key` |
+| **Preferências** | `config.yaml` | 📝 Não-sensível | `default_region: nbg1` |
+| **Defaults de Apps** | `config.yaml` | 📝 Não-sensível | `postgres_version: "14"` |
+| **Estado de Servidores** | `state.json` | 🔄 Dinâmico | Server IPs, status, apps instaladas |
+
+**Exemplos Práticos:**
+
+```yaml
+# ✅ config.yaml (não-sensível)
+general:
+  default_provider: hetzner
+  default_region: ash          # ← Preferência, não secret
+  admin_email: admin@example.com
+
+apps:
+  defaults:
+    postgres_version: "14"
+    redis_version: "latest"
+```
+
+```yaml
+# ✅ credentials.vault (criptografado)
+# Acessível apenas via orchestrator.storage.secrets.get_secret()
+hetzner_token: "abc123xyz..."
+cloudflare_api_key: "def456..."
+cloudflare_email: "admin@livchat.ai"
+ssh_private_key: "-----BEGIN..."
+```
+
+```json
+// ✅ state.json (estado dinâmico)
+{
+  "servers": [
+    {
+      "name": "prod-server",
+      "ip": "1.2.3.4",
+      "provider": "hetzner",
+      "provider_server_id": "12345678"  // ← Não é secret, é ID público
+    }
+  ]
+}
+```
+
+**⚠️ Erros Comuns a Evitar:**
+
+1. ❌ **NUNCA** colocar tokens no `config.yaml`
+   ```yaml
+   # ERRADO!
+   providers:
+     hetzner:
+       token: "abc123"  # ← Arquivo não criptografado!
+   ```
+
+2. ❌ **NUNCA** colocar preferências no `vault`
+   ```python
+   # ERRADO!
+   secrets.set_secret("default_region", "nbg1")  # ← Não é secret!
+   ```
+
+3. ✅ **SEMPRE** usar vault para credenciais
+   ```python
+   # CORRETO!
+   api_token = orchestrator.storage.secrets.get_secret(f"{provider}_token")
+   ```
+
+**🔍 Como Decidir:**
+
+Pergunte-se: **"Se eu commitasse isso no GitHub, teria problemas?"**
+- **SIM**: Vai no `credentials.vault`
+- **NÃO**: Vai no `config.yaml` ou `state.json`
+
 #### **Provider Module** [PARCIALMENTE DECIDIDO]
 ```python
 class ProviderInterface(ABC):
