@@ -420,7 +420,7 @@ async def setup_server(
     v0.2.0 Changes:
     - DNS configuration (zone_name) is now REQUIRED
     - Traefik and Portainer are NO LONGER deployed during setup
-    - They must be deployed separately as "base-infrastructure" app
+    - They must be deployed separately as "infrastructure" app
 
     Steps performed by the job:
     1. Update system packages and configure timezone
@@ -428,8 +428,8 @@ async def setup_server(
     3. Initialize Docker Swarm with overlay network
     4. Save DNS configuration to server state
 
-    After setup, deploy base-infrastructure:
-    POST /api/apps/deploy with app_name="base-infrastructure"
+    After setup, deploy infrastructure:
+    POST /api/apps/deploy with app_name="infrastructure"
 
     Raises:
         404: Server not found

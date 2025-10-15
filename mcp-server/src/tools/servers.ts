@@ -308,8 +308,8 @@ export class SetupServerTool {
       output += '   3️⃣  Inicialização do Swarm + rede overlay\n';
       output += '   4️⃣  Configuração DNS salva no servidor\n\n';
       output += '⚠️  IMPORTANTE: Traefik e Portainer NÃO são mais instalados automaticamente!\n';
-      output += '   Após o setup, você DEVE deployar a base-infrastructure:\n';
-      output += `   deploy-app(app_name="base-infrastructure", server_name="${input.server_name}")\n\n`;
+      output += '   Após o setup, você DEVE deployar a infrastructure:\n';
+      output += `   deploy-app(app_name="infrastructure", server_name="${input.server_name}")\n\n`;
       output += '⏱️  Tempo estimado: 3-5 minutos\n\n';
       output += '💡 Use get-job-status para acompanhar o progresso:\n';
       output += `   get-job-status(job_id="${response.job_id}", tail_logs=50)`;

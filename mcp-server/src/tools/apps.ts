@@ -271,7 +271,7 @@ export class ListDeployedAppsTool {
       let output = `✅ Aplicações Instaladas em "${input.server_name}": ${apps.apps.length}\n\n`;
 
       for (const app of apps.apps) {
-        output += `📱 ${app.name}\n`;
+        output += `📱 ${app.app_name}\n`;
         output += `   📊 Status: ${app.status || 'unknown'}\n`;
 
         if (app.domain) {
@@ -282,8 +282,8 @@ export class ListDeployedAppsTool {
           output += `   🔗 URL: ${app.url}\n`;
         }
 
-        if (app.installed_at) {
-          output += `   🕐 Instalado em: ${app.installed_at}\n`;
+        if (app.deployed_at) {
+          output += `   🕐 Instalado em: ${app.deployed_at}\n`;
         }
 
         if (app.version) {

@@ -308,27 +308,55 @@ async def list_deployed_apps(
         )
 
     try:
-        # Get all deployments
-        all_deployments = orchestrator.storage.state.get_deployments()
+        # Get applications list from server data
+        # Applications are stored in the server's 'applications' field
+        app_names = server_data.get("applications", [])
 
-        # Filter deployments for this server
-        server_deployments = [
-            d for d in all_deployments
-            if d.get("server") == server_name
-        ]
+        if not app_names:
+            return DeployedAppListResponse(
+                apps=[],
+                server_name=server_name,
+                total=0
+            )
+
+        # Get app registry for additional details
+        registry = get_app_registry()
 
         # Convert to DeployedAppInfo models
-        deployed_apps = [
-            DeployedAppInfo(
-                app_name=d.get("app_name"),
-                server_name=server_name,
-                domain=d.get("domain"),
-                status=d.get("status", "unknown"),
-                deployed_at=d.get("timestamp"),
-                environment=d.get("environment", {})
+        deployed_apps = []
+        for app_name in app_names:
+            # Get app definition from registry (if available)
+            app_def = registry.get_app(app_name)
+
+            # Build domain based on DNS config and dns_prefix from YAML
+            domain = None
+            dns_config = server_data.get("dns_config")
+            if dns_config:
+                zone = dns_config.get("zone_name")
+                subdomain = dns_config.get("subdomain")
+
+                # Get dns_prefix from app definition (if exists)
+                # Falls back to app_name if no dns_prefix defined
+                dns_prefix = app_def.get("dns_prefix") if app_def else None
+                prefix_to_use = dns_prefix if dns_prefix else app_name
+
+                if zone:
+                    # Domain pattern: {dns_prefix}.{subdomain}.{zone} or {dns_prefix}.{zone}
+                    if subdomain:
+                        domain = f"{prefix_to_use}.{subdomain}.{zone}"
+                    else:
+                        domain = f"{prefix_to_use}.{zone}"
+
+            deployed_apps.append(
+                DeployedAppInfo(
+                    app_name=app_name,
+                    server_name=server_name,
+                    domain=domain,
+                    status="deployed",  # We know it's deployed if it's in the list
+                    deployed_at=server_data.get("updated_at"),
+                    environment={}  # Environment vars are not stored in state
+                )
             )
-            for d in server_deployments
-        ]
 
         return DeployedAppListResponse(
             apps=deployed_apps,

@@ -78,7 +78,7 @@ async def execute_setup_server(job: Job, orchestrator: Orchestrator) -> Dict[str
     v0.2.0 Changes:
     - zone_name is now REQUIRED (not optional)
     - Traefik and Portainer are NO LONGER deployed during setup
-    - They must be deployed separately as "base-infrastructure" app
+    - They must be deployed separately as "infrastructure" app
 
     Args:
         job: Job instance with params (server_name, zone_name, subdomain, ssl_email, etc)

@@ -13,7 +13,7 @@ from .orchestrator import Orchestrator, LivChatSetup
 from .storage import StorageManager, ConfigStore, StateStore, SecretsStore
 
 # Version info
-__version__ = "0.2.0"  # v0.2.0: DNS-first architecture, automatic dependencies
+__version__ = "0.2.4"  # v0.2.4: Fixed list-deployed-apps, DNS prefixes, infrastructure naming
 
 # Public exports
 __all__ = [

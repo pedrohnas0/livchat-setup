@@ -126,7 +126,7 @@ server.tool(
 
 server.tool(
   "setup-server",
-  "Configura servidor: sistema, Docker, Swarm e DNS (zone_name OBRIGATÓRIO). Traefik/Portainer NÃO inclusos - deploy base-infrastructure após. Retorna job_id.",
+  "Configura servidor: sistema, Docker, Swarm e DNS (zone_name OBRIGATÓRIO). Traefik/Portainer NÃO inclusos - deploy infrastructure após. Retorna job_id.",
   SetupServerInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.setupServer.execute(input as any) }] })
 );
