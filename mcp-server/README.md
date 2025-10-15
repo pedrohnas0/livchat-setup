@@ -88,4 +88,6 @@ npm run dev
 
 ## License
 
-MIT
+Licença Provisória - ver [LICENSE](LICENSE) para detalhes
+
+**Resumo:** Código aberto para aprendizado, uso comercial requer autorização

@@ -7,7 +7,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="livchat-setup",
-    version="0.2.4",
+    version="0.1.4",
     author="Pedro Nascimento",
     author_email="team@livchat.ai",
     description="Automated server setup and application deployment system with AI control via MCP (v0.2.0: DNS-first architecture)",
@@ -40,7 +40,6 @@ setup(
         "Intended Audience :: System Administrators",
         "Topic :: Software Development :: Build Tools",
         "Topic :: System :: Systems Administration",
-        "License :: OSI Approved :: MIT License",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.11",
         "Programming Language :: Python :: 3.12",

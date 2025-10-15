@@ -1,285 +1,174 @@
-# LivChat Setup v0.2.0
+# 🚀 LivChat Setup
 
-Automated server setup and application deployment system with AI integration via MCP.
+**Automated server setup and deployment with AI control**
 
-**v0.2.0 - DNS-First Architecture**: Mandatory DNS configuration during server setup for seamless application deployment.
+Deploy complete stacks (N8N, Chatwoot, Portainer) on VPS with one command - via Python or Claude AI.
 
-## 🎯 Features
+> 🧪 **Beta aberto** - Sistema funcional, em desenvolvimento ativo
 
-- 🚀 **Automated VPS Creation**: One-command server provisioning on Hetzner Cloud
-- 🌐 **DNS-First Architecture** (v0.2.0): Mandatory DNS configuration with automatic domain assignment
-- 🐳 **Docker Swarm Orchestration**: Full container orchestration with service management
-- 📦 **Smart Dependency Resolution**: Automatic installation of required services (like npm install!)
-- 🏗️ **Infrastructure as Apps**: Traefik and Portainer deployed as applications
-- 🔐 **Secure Credential Management**: Ansible Vault encryption for all secrets
-- 🤖 **AI Control via MCP**: Full integration with Claude via Model Context Protocol
-- ☁️ **Multi-Cloud Ready**: Currently supports Hetzner, designed for easy provider addition
+---
 
-## 📦 Installation
-
-### Python Package (Core)
+## ⚡ Instalação
 
 ```bash
+# Python package
 pip install livchat-setup
-```
 
-### MCP Server (AI Integration)
-
-```bash
+# MCP server (para usar com Claude)
 npm install -g @pedrohnas/livchat-setup-mcp
 ```
 
 ## 🚀 Quick Start
 
-### Via MCP (with Claude)
+### 1. Configure credenciais
 
-1. Configure MCP in Claude Desktop (`claude_desktop_config.json`):
+```bash
+# Start API server
+livchat-setup serve
+
+# Em outro terminal, configure via Claude ou Python:
+# - Hetzner API token
+# - Cloudflare API key + email
+```
+
+### 2. Deploy via Claude AI
 
 ```json
+// Configure Claude Desktop (claude_desktop_config.json)
 {
   "mcpServers": {
     "livchat-setup": {
       "command": "npx",
-      "args": ["@pedrohnas/livchat-setup-mcp"],
-      "env": {
-        "LIVCHAT_API_URL": "http://localhost:8000"
-      }
+      "args": ["@pedrohnas/livchat-setup-mcp"]
     }
   }
 }
 ```
 
-2. Start the API server:
-
-```bash
-# Start API (terminal 1)
-livchat-setup serve
+**Comandos naturais:**
+```
+"Create server prod-01 type cx21 in region nbg1"
+"Setup with DNS zone example.com subdomain prod"
+"Deploy N8N"  → Auto-instala postgres + redis!
 ```
 
-3. Use via Claude:
-
-```
-"Create a server called prod-01 on Hetzner with type cx21 in region nbg1"
-"Setup the server with DNS zone example.com and subdomain prod"
-"Deploy the infrastructure bundle (Traefik + Portainer)"
-"Deploy N8N on prod-01"  # Will auto-install postgres + redis!
-```
-
-### Via Python API
+### 3. Deploy via Python
 
 ```python
 from orchestrator import Orchestrator
 
-# Initialize
 orch = Orchestrator()
 orch.init()
 
-# Configure provider
-orch.configure_provider("hetzner", "your-hetzner-token")
+# Create + setup server (~3 min)
+orch.create_server_sync("prod-01", "cx21", "nbg1")
+orch.setup_server_sync("prod-01", zone_name="example.com", subdomain="prod")
 
-# Create server (takes ~30s)
-server = orch.create_server_sync("prod-01", "cx21", "nbg1")
-
-# Setup with DNS (v0.2.0: DNS is MANDATORY!)
-result = orch.setup_server_sync(
-    "prod-01",
-    zone_name="example.com",    # REQUIRED
-    subdomain="prod",            # OPTIONAL
-    ssl_email="admin@example.com"
-)
-
-# Deploy infrastructure bundle
-orch.deploy_infrastructure_sync("prod-01")
-
-# Deploy N8N (auto-installs postgres + redis)
-orch.deploy_app_sync("prod-01", "n8n")
+# Deploy infrastructure + app
+orch.deploy_app_sync("prod-01", "infrastructure")  # Traefik + Portainer
+orch.deploy_app_sync("prod-01", "n8n")             # Auto-resolves dependencies!
 ```
 
-## 🌟 What's New in v0.2.0
+## ✨ Principais Features
 
-### DNS-First Architecture
+- **🤖 AI Control**: Gerencie servidores conversando com Claude
+- **📦 Auto Dependencies**: Deploy N8N instala postgres + redis automaticamente
+- **🌐 DNS Automático**: Apps recebem domínios prontos (n8n.lab.example.com)
+- **⚡ Async Jobs**: Operações longas rodam em background com tracking
+- **🔐 Secrets Management**: Credenciais criptografadas com Ansible Vault
+- **🐳 Docker Swarm**: Orquestração completa com Traefik SSL automático
 
-DNS is now **mandatory** during server setup, not optional:
+## 📦 Apps Disponíveis
 
-```python
-# ✅ v0.2.0 (CORRECT)
-orch.setup_server_sync(
-    "my-server",
-    zone_name="example.com",     # REQUIRED!
-    subdomain="lab"              # Optional
-)
+| Categoria | Apps |
+|-----------|------|
+| **Infrastructure** | Traefik, Portainer |
+| **Databases** | PostgreSQL, Redis |
+| **Automation** | N8N (auto-instala postgres + redis) |
+| **Communication** | Chatwoot |
 
-# ❌ OLD WAY (no longer works)
-orch.setup_server("my-server")  # Missing DNS → ERROR!
-```
+**Cada app inclui:**
+- Domain + SSL automático via Traefik
+- Resolução de dependências
+- Health checks
 
-### Infrastructure as Apps
+## 🔧 Configuração
 
-Traefik and Portainer are now deployed **after** setup via `deploy-app`:
+### Secrets necessários
 
 ```bash
-# v0.2.0 Workflow:
-1. create-server      # Create VPS
-2. setup-server       # Install Docker + Swarm + DNS config
-3. deploy-app(infrastructure)  # Deploy Traefik + Portainer
-4. deploy-app(n8n)    # Deploy applications
+# Via MCP tool "manage-secrets" ou Python
+hetzner_token          # API token Hetzner
+cloudflare_api_key     # Cloudflare API key
+cloudflare_email       # Email do Cloudflare
 ```
 
-### Automatic Dependency Resolution
-
-Like `npm install`, dependencies are automatically installed:
-
-```python
-# Deploy N8N
-orch.deploy_app_sync("server", "n8n")
-
-# System automatically installs:
-# 1. postgres (dependency)
-# 2. redis (dependency)
-# 3. n8n (requested app)
-
-# Result: All 3 apps running! 🎉
-```
-
-### Domain Auto-Building
-
-Applications automatically get correct domains from DNS config:
-
-```python
-# Server setup with:
-zone_name="livchat.ai"
-subdomain="lab"
-
-# Applications get domains automatically:
-# - Portainer: ptn.lab.livchat.ai
-# - N8N: edt.lab.livchat.ai
-# - Postgres: pg.lab.livchat.ai
-```
-
-## 📚 Available Applications
-
-- **Infrastructure**: Traefik, Portainer
-- **Databases**: PostgreSQL, Redis
-- **Automation**: N8N
-- **Communication**: Chatwoot
-
-Each app has automatic:
-- ✅ Domain configuration
-- ✅ SSL certificates (via Traefik)
-- ✅ Dependency resolution
-- ✅ Health checks
-
-## 🔧 Configuration
-
-### Storage Location
-
-All configs stored in `~/.livchat/`:
+### Storage local
 
 ```
 ~/.livchat/
-├── state.json              # Server state + DNS configs
-├── credentials.vault       # Encrypted secrets (Ansible Vault)
-└── ssh_keys/              # SSH keys for server access
-```
-
-### Required Secrets
-
-Configure via MCP `manage-secrets` tool or directly:
-
-```bash
-# Hetzner API token (required for server creation)
-HETZNER_TOKEN="your-token-here"
-
-# Cloudflare credentials (required for DNS)
-CLOUDFLARE_API_KEY="your-api-key"
-CLOUDFLARE_EMAIL="your-email"
+├── state.json              # Estado dos servidores + apps
+├── credentials.vault       # Secrets criptografados
+└── ssh_keys/              # Chaves SSH
 ```
 
 ## 🧪 Development
 
-### Run Tests
-
 ```bash
-# E2E tests (validates full workflow)
-cd mcp-server
-npm run test:e2e
+# Run tests
+pytest tests/unit/           # Unit tests
+pytest tests/integration/    # Integration tests
+cd mcp-server && npm test    # MCP E2E tests
 
-# Unit tests (Python)
-pytest tests/unit/
-
-# Integration tests
-pytest tests/integration/
+# Dev setup
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-### Project Structure
-
+**Structure:**
 ```
-LivChatSetup/
-├── src/                   # Python core
-│   ├── orchestrator.py    # Main orchestration
-│   ├── app_registry.py    # App dependency resolution
-│   ├── app_deployer.py    # Deployment logic
-│   └── providers/         # Cloud providers
-├── mcp-server/            # MCP integration (TypeScript)
-├── apps/                  # App definitions (YAML)
-└── ansible/               # Automation playbooks
+src/          → Core Python (orchestrator, providers, deployer)
+apps/         → App definitions (YAML)
+ansible/      → Playbooks (setup, deploy)
+mcp-server/   → TypeScript MCP integration
 ```
 
-## 📖 Documentation
+## 📖 Docs
 
-- [CLAUDE.md](CLAUDE.md) - Full architecture and design decisions
-- [plans/](plans/) - Development plans and sprint docs
-- API Docs - Run `livchat-setup docs` after install
-
-## 🐛 Known Issues (v0.2.0)
-
-- Unit tests need async/await refactoring (~43 tests disabled)
-- E2E tests: ✅ 100% passing
-- Manual testing: ✅ Fully validated
+- **Architecture**: [CLAUDE.md](CLAUDE.md)
+- **Plans**: [plans/](plans/)
+- **API**: Run `livchat-setup docs`
 
 ## 🗺️ Roadmap
 
-### v0.3.0 (Planned)
-- [ ] DigitalOcean provider support
-- [ ] Web dashboard UI
-- [ ] App marketplace expansion
-- [ ] Backup automation
-- [ ] Multi-region deployments
+**v0.3.0** (próximo)
+- DigitalOcean provider
+- Web dashboard
+- Backup automation
 
-### v1.0.0 (Future)
-- [ ] Kubernetes support
-- [ ] Multi-tenancy/SaaS mode
-- [ ] GitHub Actions integration
-- [ ] Mobile app
+**v1.0.0** (futuro)
+- Kubernetes support
+- Multi-tenancy
+- GitHub Actions integration
 
-## 🤝 Contributing
+## 📄 Licença
 
-Contributions welcome! Please:
+Licença Provisória - ver [LICENSE](LICENSE) para detalhes
 
-1. Fork the repo
-2. Create feature branch (`git checkout -b feature/amazing`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing`)
-5. Open Pull Request
+**Resumo:** Código aberto para aprendizado, uso comercial requer autorização
 
-## 📄 License
+---
 
-MIT License - see [LICENSE](LICENSE) file for details.
+## 💝 Inspiração & Agradecimentos
 
-## 🙏 Acknowledgments
+**Willian - [Orion Design](https://oriondesign.art.br/)**
+Projeto inspirado no [SetupOrion](https://github.com/oriondesign2015/SetupOrion)
 
-- Inspired by [SetupOrion](https://github.com/oriondesign2015/SetupOrion)
-- Built with [Model Context Protocol](https://modelcontextprotocol.io)
-- Powered by [Ansible](https://www.ansible.com/), [Docker Swarm](https://docs.docker.com/engine/swarm/), and [Traefik](https://traefik.io/)
-
-## 📧 Support
-
-- **Issues**: [GitHub Issues](https://github.com/pedrohnas/livchat-setup/issues)
-- **Email**: team@livchat.ai
-- **Docs**: [Full Documentation](https://github.com/pedrohnas/livchat-setup/blob/main/CLAUDE.md)
+**Tecnologias:**
+- [Model Context Protocol](https://modelcontextprotocol.io) (Anthropic)
+- [Ansible](https://www.ansible.com/) + [Docker Swarm](https://docs.docker.com/engine/swarm/) + [Traefik](https://traefik.io/)
 
 ---
 
 **Made with ❤️ by LivChat Team**
-
-*v0.2.0 - DNS-First Architecture Release*
