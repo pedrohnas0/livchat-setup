@@ -120,18 +120,125 @@ async def create_server(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+def _sync_servers_with_provider(orchestrator: Orchestrator) -> None:
+    """
+    Synchronize state.json with real servers from provider (Hetzner)
+
+    This function:
+    1. Fetches real servers from cloud provider
+    2. Adds new servers found in provider to state
+    3. Marks servers in state but not in provider as 'deleted_externally'
+    4. Updates status/IP for servers present in both
+
+    Gracefully degrades if provider unavailable (no token, network error, etc.)
+    """
+    try:
+        # Try to initialize provider (lazy load from vault)
+        # v0.2.0: No config.yaml - detect provider from available tokens
+        if not orchestrator.provider:
+            # Try Hetzner first (primary provider)
+            token = orchestrator.storage.secrets.get_secret("hetzner_token")
+
+            if token:
+                from src.providers.hetzner import HetznerProvider
+                orchestrator.provider = HetznerProvider(token)
+                logger.debug("Hetzner provider initialized for sync")
+            else:
+                # Try DigitalOcean as fallback
+                token = orchestrator.storage.secrets.get_secret("digitalocean_token")
+                if token:
+                    logger.warning("DigitalOcean provider not yet implemented - skipping sync")
+                    return
+                else:
+                    logger.debug("No provider token available - skipping sync")
+                    return
+
+        # Fetch servers from provider
+        provider_servers = orchestrator.provider.list_servers()
+        logger.info(f"Found {len(provider_servers)} servers in provider")
+
+        # Get current state
+        state_servers = orchestrator.storage.state.list_servers()
+
+        # Create mapping of provider IDs to server data
+        provider_map = {s['id']: s for s in provider_servers}
+        state_ids = {data.get('id'): name for name, data in state_servers.items()}
+
+        # 1. Find servers in state but NOT in provider (deleted externally)
+        for name, data in state_servers.items():
+            server_id = data.get('id')
+            if server_id and server_id not in provider_map:
+                logger.warning(f"Server {name} (ID: {server_id}) not found in provider - marking as deleted_externally")
+                data['status'] = 'deleted_externally'
+                orchestrator.storage.state.update_server(name, data)
+
+        # 2. Find servers in provider but NOT in state (new discoveries)
+        for provider_server in provider_servers:
+            server_id = provider_server['id']
+            if server_id not in state_ids:
+                server_name = provider_server['name']
+                logger.info(f"Discovered new server in provider: {server_name} (ID: {server_id})")
+
+                # Add to state
+                server_data = {
+                    "id": server_id,
+                    "name": server_name,
+                    "provider": provider_server.get('provider', 'hetzner'),
+                    "type": provider_server.get('type'),
+                    "region": provider_server.get('datacenter', 'unknown'),
+                    "ip": provider_server.get('ip'),
+                    "status": provider_server.get('status'),
+                }
+                orchestrator.storage.state.add_server(server_name, server_data)
+
+        # 3. Update servers present in both (sync status/IP)
+        for name, data in state_servers.items():
+            server_id = data.get('id')
+            if server_id and server_id in provider_map:
+                provider_data = provider_map[server_id]
+
+                # Update mutable fields
+                data['status'] = provider_data.get('status', data.get('status'))
+                data['ip'] = provider_data.get('ip', data.get('ip'))
+
+                orchestrator.storage.state.update_server(name, data)
+                logger.debug(f"Synced server {name}: status={data['status']}, ip={data['ip']}")
+
+        logger.info("Server synchronization with provider completed successfully")
+
+    except Exception as e:
+        # Graceful degradation - log error but don't fail the request
+        logger.warning(f"Failed to sync with provider (will return cached state): {e}")
+
+
 @router.get("", response_model=ServerListResponse)
 async def list_servers(
+    sync_provider: bool = True,
     orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """
-    List all servers
+    List all servers with automatic provider synchronization
 
-    Returns servers from state (synchronous operation).
-    Shows all servers that have been created and are tracked by the system.
+    By default, this endpoint synchronizes with the cloud provider (Hetzner)
+    to ensure the returned list reflects reality:
+    - New servers in provider are automatically added to state
+    - Deleted servers are marked as 'deleted_externally'
+    - Server status/IP is updated from provider
+
+    Args:
+        sync_provider: If True (default), syncs with cloud provider before listing
+
+    Returns:
+        ServerListResponse with all tracked servers
+
+    Note: If provider sync fails (no token, network error), falls back to cached state
     """
     try:
-        # Get servers from state
+        # Sync with provider first (if enabled)
+        if sync_provider:
+            _sync_servers_with_provider(orchestrator)
+
+        # Get servers from state (now synchronized)
         servers_dict = orchestrator.storage.state.list_servers()
 
         # Convert to ServerInfo models
@@ -183,13 +290,14 @@ async def get_server(
 
         if server_id:
             # Initialize provider if needed (lazy load from vault)
+            # v0.2.0: No config.yaml - detect provider from available tokens
             if not orchestrator.provider:
-                provider_name = orchestrator.storage.config.get("provider", "hetzner")
-                token = orchestrator.storage.secrets.get_secret(f"{provider_name}_token")
+                # Try Hetzner first (primary provider)
+                token = orchestrator.storage.secrets.get_secret("hetzner_token")
                 if token:
                     from src.providers.hetzner import HetznerProvider
                     orchestrator.provider = HetznerProvider(token)
-                    logger.debug(f"Provider {provider_name} initialized for verification")
+                    logger.debug("Hetzner provider initialized for verification")
 
             # Only verify if provider was successfully initialized
             if orchestrator.provider:

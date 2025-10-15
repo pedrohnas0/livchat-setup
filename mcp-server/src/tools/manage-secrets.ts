@@ -13,9 +13,8 @@ import { ErrorHandler } from '../error-handler.js';
  */
 export const ManageSecretsInputSchema = z.object({
   action: z.enum(['list', 'get', 'set', 'delete']).describe('Action: list, get, set, or delete secrets'),
-  key: z.string().optional().describe('Secret key (e.g., "hetzner_api_token", "cloudflare_api_token")'),
+  key: z.string().optional().describe('Secret key (e.g., "hetzner_token", "cloudflare_api_key")'),
   value: z.string().optional().describe('Secret value (for set action) - will be encrypted'),
-  vault_password: z.string().optional().describe('Vault password for encryption/decryption'),
 });
 
 export type ManageSecretsInput = z.infer<typeof ManageSecretsInputSchema>;
@@ -35,11 +34,11 @@ export class ManageSecretsTool {
         case 'list':
           return await this.listSecrets();
         case 'get':
-          return await this.getSecret(input.key, input.vault_password);
+          return await this.getSecret(input.key);
         case 'set':
-          return await this.setSecret(input.key, input.value, input.vault_password);
+          return await this.setSecret(input.key, input.value);
         case 'delete':
-          return await this.deleteSecret(input.key, input.vault_password);
+          return await this.deleteSecret(input.key);
         default:
           return '❌ Invalid action. Use: list, get, set, or delete';
       }
@@ -52,10 +51,10 @@ export class ManageSecretsTool {
    * List all secret keys (without values)
    */
   private async listSecrets(): Promise<string> {
-    const secrets = await this.client.get<{ keys: string[] }>('/secrets');
+    const secrets = await this.client.get<{ keys: string[] }>('/api/secrets');
 
     if (!secrets.keys || secrets.keys.length === 0) {
-      return '✅ No secrets stored yet.\n\nUse action: set to add secrets.';
+      return '✅ No secrets stored yet.\n\n💡 Use action: set to add secrets.';
     }
 
     let output = '✅ Stored Secret Keys:\n\n';
@@ -71,19 +70,12 @@ export class ManageSecretsTool {
   /**
    * Get a specific secret (decrypted)
    */
-  private async getSecret(key?: string, vaultPassword?: string): Promise<string> {
+  private async getSecret(key?: string): Promise<string> {
     if (!key) {
       return '❌ Error: key parameter is required for get action';
     }
 
-    if (!vaultPassword) {
-      return '❌ Error: vault_password parameter is required to decrypt secrets';
-    }
-
-    const response = await this.client.post<{ key: string; value: string }>('/secrets/get', {
-      key,
-      vault_password: vaultPassword,
-    });
+    const response = await this.client.get<{ key: string; value: string }>(`/api/secrets/${key}`);
 
     return `✅ Secret Retrieved:\n\n🔐 Key: ${response.key}\n🔓 Value: ${response.value}\n\n⚠️  Keep this secret safe!`;
   }
@@ -91,7 +83,7 @@ export class ManageSecretsTool {
   /**
    * Set a secret (encrypted)
    */
-  private async setSecret(key?: string, value?: string, vaultPassword?: string): Promise<string> {
+  private async setSecret(key?: string, value?: string): Promise<string> {
     if (!key) {
       return '❌ Error: key parameter is required for set action';
     }
@@ -100,15 +92,7 @@ export class ManageSecretsTool {
       return '❌ Error: value parameter is required for set action';
     }
 
-    if (!vaultPassword) {
-      return '❌ Error: vault_password parameter is required to encrypt secrets';
-    }
-
-    await this.client.post('/secrets/set', {
-      key,
-      value,
-      vault_password: vaultPassword,
-    });
+    await this.client.put(`/api/secrets/${key}`, { value });
 
     return `✅ Secret Stored Successfully:\n\n🔐 Key: ${key}\n🔒 Value: [ENCRYPTED]\n\n💡 The secret is now encrypted in Ansible Vault.`;
   }
@@ -116,19 +100,12 @@ export class ManageSecretsTool {
   /**
    * Delete a secret
    */
-  private async deleteSecret(key?: string, vaultPassword?: string): Promise<string> {
+  private async deleteSecret(key?: string): Promise<string> {
     if (!key) {
       return '❌ Error: key parameter is required for delete action';
     }
 
-    if (!vaultPassword) {
-      return '❌ Error: vault_password parameter is required to delete secrets';
-    }
-
-    await this.client.post('/secrets/delete', {
-      key,
-      vault_password: vaultPassword,
-    });
+    await this.client.delete(`/api/secrets/${key}`);
 
     return `✅ Secret Deleted:\n\n🔐 Key: ${key}\n\n💡 The secret has been removed from the vault.`;
   }
