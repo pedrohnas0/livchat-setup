@@ -1,6 +1,6 @@
 {
   "name": "@pedrohnas/livchat-setup-mcp",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "MCP Server for LivChatSetup - Infrastructure orchestration via AI (v0.2.0: DNS-first architecture)",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

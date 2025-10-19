@@ -121,7 +121,7 @@ export class ErrorHandler {
         aiContext: 'Failed to connect to the LivChatSetup API server. The server might be offline or unreachable.',
         suggestions: [
           'Install LivChat Setup: pip install livchat-setup (or clone from GitHub)',
-          'Start the API server: source venv/bin/activate && uvicorn src.api.server:app --reload --port 8000',
+          'Start the API server: livchat-setup serve (or livchat-setup serve --reload for dev mode)',
           'Check that the API server is running: curl $LIVCHAT_API_URL/health',
           'Verify the LIVCHAT_API_URL environment variable is correct (default: http://localhost:8000)',
           'Check your network connection',

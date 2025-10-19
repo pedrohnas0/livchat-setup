@@ -32,6 +32,12 @@ def main():
     init_parser = subparsers.add_parser('init', help='Initialize LivChat Setup')
     init_parser.add_argument('--config-dir', type=Path, help='Configuration directory')
 
+    # Serve command (API server)
+    serve_parser = subparsers.add_parser('serve', help='Start the API server')
+    serve_parser.add_argument('--host', default='127.0.0.1', help='Host to bind to (default: 127.0.0.1)')
+    serve_parser.add_argument('--port', type=int, default=8000, help='Port to bind to (default: 8000)')
+    serve_parser.add_argument('--reload', action='store_true', help='Enable auto-reload for development')
+
     # Configure command
     config_parser = subparsers.add_parser('configure', help='Configure provider or settings')
     config_parser.add_argument('provider', nargs='?', help='Provider name (e.g., hetzner)')
@@ -131,6 +137,27 @@ def main():
             setup.init()
             print("✅ LivChat Setup initialized successfully")
             print(f"Configuration directory: {setup.config_dir}")
+
+        elif args.command == 'serve':
+            # Import uvicorn here to avoid loading it when not needed
+            import uvicorn
+
+            print(f"🚀 Starting LivChat Setup API server...")
+            print(f"   Host: {args.host}")
+            print(f"   Port: {args.port}")
+            print(f"   Reload: {args.reload}")
+            print(f"\n📡 API will be available at: http://{args.host}:{args.port}")
+            print(f"📚 API docs: http://{args.host}:{args.port}/docs")
+            print(f"\nPress CTRL+C to stop the server\n")
+
+            # Run the server
+            uvicorn.run(
+                "src.api.server:app",
+                host=args.host,
+                port=args.port,
+                reload=args.reload,
+                log_level="info"
+            )
 
         elif args.command == 'configure':
             # Configure admin email if provided
