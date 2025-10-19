@@ -315,17 +315,19 @@ tests/
 - [ ] Rodar suite completa - tudo verde
 - [ ] Baseline: pytest --cov=src (registrar %)
 
-### Fase 1: orchestrator.py (Prioridade MÁXIMA)
-- [ ] Mapear todos os métodos e responsabilidades
-- [ ] Criar estrutura src/orchestrator/
-- [ ] Implementar ServerManager
-- [ ] Implementar DeploymentManager
+### Fase 1: orchestrator.py (Prioridade MÁXIMA) - 🟡 EM PROGRESSO
+- [x] Mapear todos os métodos e responsabilidades
+- [x] Criar estrutura src/orchestrator/
+- [x] Implementar ProviderManager (46 linhas, 6 tests)
+- [x] Implementar ServerManager (151 linhas, 14 tests)
+- [ ] 🟡 Implementar DeploymentManager (em progresso)
 - [ ] Implementar DNSManager
-- [ ] Implementar ProviderManager
 - [ ] Implementar IntegrationManager
+- [ ] Implementar core.py (facade pattern)
 - [ ] Atualizar imports em toda codebase
 - [ ] Rodar testes unitários
 - [ ] Rodar testes de integração
+- [ ] Rodar E2E test (obrigatório)
 
 ### Fase 2: server_setup.py
 - [ ] Criar estrutura src/server_setup/
@@ -400,7 +402,15 @@ tests/
 
 ## 📊 Status
 
-- 🔴 **NOT STARTED**
+- 🟡 **EM PROGRESSO** (Fase 1 - 40% completa)
 - Criado: 2025-10-19
-- Estimativa total: 52h (6-7 dias de trabalho)
+- Atualizado: 2025-10-19 (v0.2.5)
+- Progresso:
+  - ✅ ProviderManager (46 linhas, 6 tests)
+  - ✅ ServerManager (151 linhas, 14 tests)
+  - 🟡 DeploymentManager (próximo)
+  - ⚪ DNSManager
+  - ⚪ IntegrationManager
+  - ⚪ core.py facade
+- Estimativa restante: ~30h
 - Prioridade: **CRÍTICA** (fundação para manutenibilidade)
