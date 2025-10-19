@@ -31,10 +31,11 @@
 - ✅ Hetzner provider
 - ✅ Docker Swarm + Traefik
 - ✅ 7 apps (Traefik, Portainer, Postgres, Redis, N8N, Chatwoot)
-- ✅ MCP server (14 tools)
+- ✅ MCP server (13 tools - manage-config REMOVED)
 - ✅ Async job system
 - ✅ Modular orchestrator (ProviderManager, ServerManager) - PLAN-08
-- ✅ Settings in state.json (no config.yaml)
+- ✅ Settings in state.json (config.yaml EXTINTO)
+- ✅ Critical bug fix: StateStore lazy loading (_loaded flag)
 
 ---
 
@@ -184,6 +185,24 @@ def mock_deployer():
 
 **DON'T mock httpx/requests** - mock at component level
 
+### 🚨 Test-Before-Commit (MANDATORY)
+**NEVER commit without running tests!**
+
+```bash
+# Pre-commit checklist:
+pytest tests/unit/ -v                          # 1. Unit tests (REQUIRED)
+cd mcp-server && npm run build                 # 2. TypeScript compile
+cd mcp-server && export LIVCHAT_E2E_REAL=true && timeout 30m npm run test:e2e  # 3. E2E (for critical changes)
+```
+
+**E2E Required for:**
+- ✅ storage.py changes
+- ✅ orchestrator/job system changes
+- ✅ deploy/setup logic changes
+- ✅ Critical MCP tools (servers, apps, setup)
+
+**E2E Duration:** 8-12 min | **Timeout:** 30min
+
 ### Planning Process
 - Create plan in `plans/plan-XX.md` BEFORE major features
 - Use Etapas + Tasks (not time estimates)
@@ -207,10 +226,9 @@ POST /apps/deploy         # Deploy app (async)
 GET  /jobs/{id}           # Job status
 ```
 
-### MCP Tools (14 total)
+### MCP Tools (13 total - manage-config REMOVED v0.2.5)
 ```typescript
-manage-config           // Non-sensitive config
-manage-secrets          // Encrypted credentials
+manage-secrets          // Encrypted credentials (config.yaml EXTINTO)
 get-provider-info       // Hetzner regions/types
 create-server           // VPS creation (async)
 list-servers            // Server list
