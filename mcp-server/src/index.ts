@@ -10,9 +10,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { APIClient } from "./api-client.js";
 import {
-  // Config & Secrets
-  ManageConfigTool,
-  ManageConfigInputSchema,
+  // Secrets (config.yaml REMOVED in v0.2.5)
   ManageSecretsTool,
   ManageSecretsInputSchema,
   // Providers
@@ -60,8 +58,7 @@ const server = new McpServer({
 
 // Initialize all tool handlers
 const tools = {
-  // Config & Secrets (2 tools)
-  manageConfig: new ManageConfigTool(apiClient),
+  // Secrets (1 tool - config.yaml REMOVED in v0.2.5)
   manageSecrets: new ManageSecretsTool(apiClient),
   // Providers (1 tool)
   getProviderInfo: new GetProviderInfoTool(apiClient),
@@ -81,14 +78,7 @@ const tools = {
   listJobs: new ListJobsTool(apiClient),
 };
 
-// Register all 14 tools with MCP server
-server.tool(
-  "manage-config",
-  "Gerencia configurações não-sensíveis (region padrão, timezone, etc). Para tokens/passwords use manage-secrets.",
-  ManageConfigInputSchema.shape,
-  async (input) => ({ content: [{ type: "text", text: await tools.manageConfig.execute(input as any) }] })
-);
-
+// Register all 13 tools with MCP server (manage-config REMOVED in v0.2.5)
 server.tool(
   "manage-secrets",
   "Gerencia credenciais criptografadas (tokens, passwords, SSH keys). Configure hetzner_token aqui antes de criar servidores.",

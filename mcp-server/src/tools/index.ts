@@ -1,9 +1,8 @@
 /**
- * Tool Registry - Central export for all 14 MCP tools
+ * Tool Registry - Central export for all 13 MCP tools (config.yaml REMOVED in v0.2.5)
  */
 
 // Export all tool classes
-export { ManageConfigTool, ManageConfigInputSchema } from './manage-config.js';
 export { ManageSecretsTool, ManageSecretsInputSchema } from './manage-secrets.js';
 export { GetProviderInfoTool, GetProviderInfoInputSchema } from './providers.js';
 export {
@@ -36,7 +35,6 @@ export {
 } from './jobs.js';
 
 // Export type definitions
-export type { ManageConfigInput } from './manage-config.js';
 export type { ManageSecretsInput } from './manage-secrets.js';
 export type { GetProviderInfoInput } from './providers.js';
 export type {

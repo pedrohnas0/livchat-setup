@@ -826,6 +826,68 @@ config = {
   pytest --cov=src    # Verificar cobertura
   ```
 
+### 🚨 Test-Before-Commit (OBRIGATÓRIO)
+**REGRA FUNDAMENTAL**: NUNCA commitar mudanças sem validar TODOS os testes antes!
+
+#### Checklist Obrigatório Antes de Commit:
+1. **Unit Tests** - Devem TODOS passar:
+   ```bash
+   pytest tests/unit/ -v
+   ```
+   ✅ Aceitar apenas se todos passarem
+   ⚠️ Alguns testes deprecated (ex: config routes) podem falhar - documentar no commit
+
+2. **Integration Tests** - Validar componentes juntos:
+   ```bash
+   pytest tests/integration/ -v
+   ```
+
+3. **E2E Test (OBRIGATÓRIO para mudanças críticas)** - Teste completo end-to-end:
+   ```bash
+   cd mcp-server && \
+   export LIVCHAT_E2E_REAL=true && \
+   timeout 30m npm run test:e2e
+   ```
+   **Duração esperada**: 8-12 minutos
+   **Timeout**: 30 minutos (segurança)
+   **O que testa**:
+   - ✅ Secrets management
+   - ✅ Server creation (Hetzner real)
+   - ✅ Server setup + DNS (Cloudflare real)
+   - ✅ Infrastructure deployment (Traefik + Portainer)
+   - ✅ App deployment com auto-dependencies (N8N + Postgres + Redis)
+   - ✅ Job system e observability
+
+4. **Linter/Type Checks** (se aplicável):
+   ```bash
+   mypy src/  # Python type checking
+   cd mcp-server && npm run build  # TypeScript compilation
+   ```
+
+#### Quando E2E é Obrigatório:
+- ✅ Mudanças em storage.py (StateStore, SecretsStore)
+- ✅ Mudanças em orchestrator ou job system
+- ✅ Mudanças em deploy/setup logic
+- ✅ Mudanças em MCP tools críticos (servers, apps, setup)
+- ⚠️ Opcional para: documentação, testes unitários isolados
+
+#### Política de Commit:
+```bash
+# ❌ NUNCA FAZER:
+git add . && git commit -m "fix bug"  # SEM rodar testes!
+
+# ✅ SEMPRE FAZER:
+pytest tests/unit/ -v                 # 1. Unit tests
+cd mcp-server && npm run test:e2e    # 2. E2E (se mudança crítica)
+git add .                             # 3. Só então commitar
+git commit -m "fix(storage): corrige lazy loading com _loaded flag
+
+- Bug: StateStore._state sempre truthy, load() nunca executava
+- Fix: Usar _loaded flag para lazy loading correto
+- Tests: E2E passou completamente (8min47s)
+"
+```
+
 ### 🚨 Padrões de Mock para Testes Rápidos
 ```python
 # PADRÃO CORRETO - Mock no nível do método
