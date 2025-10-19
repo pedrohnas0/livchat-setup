@@ -72,7 +72,7 @@ class Orchestrator:
         # Auto-load existing data if available
         if self.config_dir.exists():
             try:
-                self.storage.config.load()
+#  # Config removed - using environment variables
                 self.storage.state.load()
                 logger.info("Loaded existing configuration and state")
 
@@ -89,9 +89,9 @@ class Orchestrator:
         self.storage.init()
 
         # Set default admin email if not configured
-        if not self.storage.config.get("admin_email"):
+        if not self.storage.state.get_setting("email", "admin@localhost"):
             default_email = os.environ.get("CLOUDFLARE_EMAIL", "pedrohnas0@gmail.com")
-            self.storage.config.set("admin_email", default_email)
+#  # admin_email now from env: LIVCHAT_ADMIN_EMAIL
             logger.info(f"Set default admin email: {default_email}")
 
         logger.info("Initialization complete")
@@ -110,7 +110,7 @@ class Orchestrator:
         self.storage.secrets.set_secret(f"{provider_name}_token", token)
 
         # Update config
-        self.storage.config.set("provider", provider_name)
+#  # provider detection now from vault
 
         # Initialize provider
         if provider_name == "hetzner":
@@ -185,7 +185,7 @@ class Orchestrator:
         """
         if not self.provider:
             # Try to load provider from config
-            provider_name = self.storage.config.get("provider")
+            provider_name = "hetzner"
             if provider_name == "hetzner":
                 token = self.storage.secrets.get_secret("hetzner_token")
                 if not token:
@@ -209,7 +209,7 @@ class Orchestrator:
             logger.info(f"SSH key generated: {key_name}")
 
         # Always ensure the key is added to Hetzner
-        token = self.storage.secrets.get_secret(f"{self.storage.config.get('provider', 'hetzner')}_token")
+        token = self.storage.secrets.get_secret("hetzner_token")
         if token:
             logger.info(f"Ensuring SSH key {key_name} is added to Hetzner...")
             success = self.ssh_manager.add_to_hetzner(key_name, token)
@@ -363,7 +363,7 @@ class Orchestrator:
 
         if not self.provider:
             # Try to load provider from config
-            provider_name = server.get("provider", self.storage.config.get("provider"))
+            provider_name = server.get("provider", "hetzner")
             if provider_name == "hetzner":
                 token = self.storage.secrets.get_secret("hetzner_token")
                 if token:
@@ -703,7 +703,7 @@ class Orchestrator:
             server_ip = server.get("ip")
 
             # Get credentials from vault (should have been saved during deployment)
-            admin_email = self.storage.config.get("admin_email", "admin@localhost")
+            admin_email = self.storage.state.get_setting("email", "admin@localhost")
             portainer_password = self.storage.secrets.get_secret(f"portainer_password_{server_name}")
 
             if not portainer_password:
@@ -773,7 +773,7 @@ class Orchestrator:
 
         # Get Portainer credentials from vault
         portainer_password = self.storage.secrets.get_secret(f"portainer_password_{server_name}")
-        admin_email = self.storage.config.get("admin_email", "admin@localhost")
+        admin_email = self.storage.state.get_setting("email", "admin@localhost")
 
         if not portainer_password:
             # Password should have been saved during deployment
@@ -904,7 +904,7 @@ class Orchestrator:
             config = {}
 
         # Add default values from storage
-        config.setdefault("admin_email", self.storage.config.get("admin_email", "admin@localhost"))
+        config.setdefault("admin_email", self.storage.state.get_setting("email", "admin@localhost"))
         config.setdefault("network_name", "livchat_network")
 
         # Auto-install missing dependencies

@@ -598,7 +598,7 @@ class ServerSetup:
 
         # Save admin email for future use (OAuth, notifications, etc)
         if "admin_email" not in config and self.storage:
-            config["admin_email"] = self.storage.config.get("admin_email", "pedrohnas0@gmail.com")
+            config["admin_email"] = self.storage.state.get_setting("email", "admin@localhost")
 
         # Handle domain for Traefik - ensure PORTAINER_DOMAIN is set
         if "dns_domain" in config:

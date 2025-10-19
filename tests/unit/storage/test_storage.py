@@ -2,106 +2,10 @@
 
 import pytest
 import json
-import yaml
 from pathlib import Path
 from unittest.mock import patch, mock_open
 
-from src.storage import ConfigStore, StateStore, SecretsStore, StorageManager
-
-
-class TestConfigStore:
-    """Test configuration storage"""
-
-    def test_init_creates_default_config(self, temp_config_dir):
-        """Test that init creates default configuration"""
-        config = ConfigStore(temp_config_dir)
-        config.init()
-
-        assert config.config_file.exists()
-        with open(config.config_file) as f:
-            data = yaml.safe_load(f)
-            assert data["version"] == 1
-            assert data["provider"] == "hetzner"
-
-    def test_load_existing_config(self, temp_config_dir, sample_config):
-        """Test loading existing configuration"""
-        # Create config file
-        config_file = temp_config_dir / "config.yaml"
-        with open(config_file, 'w') as f:
-            yaml.dump(sample_config, f)
-
-        config = ConfigStore(temp_config_dir)
-        data = config.load()
-
-        assert data == sample_config
-
-    def test_save_config(self, temp_config_dir):
-        """Test saving configuration"""
-        config = ConfigStore(temp_config_dir)
-        test_data = {"test": "value", "nested": {"key": "value"}}
-
-        config.save(test_data)
-
-        with open(config.config_file) as f:
-            saved = yaml.safe_load(f)
-            assert saved == test_data
-
-    def test_get_simple_key(self, temp_config_dir, sample_config):
-        """Test getting simple configuration value"""
-        config = ConfigStore(temp_config_dir)
-        config.save(sample_config)
-
-        value = config.get("provider")
-        assert value == "hetzner"
-
-    def test_get_nested_key_with_dot_notation(self, temp_config_dir):
-        """Test getting nested value with dot notation"""
-        config = ConfigStore(temp_config_dir)
-        config.save({"level1": {"level2": {"level3": "value"}}})
-
-        value = config.get("level1.level2.level3")
-        assert value == "value"
-
-    def test_get_nonexistent_key_returns_default(self, temp_config_dir):
-        """Test that nonexistent key returns default value"""
-        config = ConfigStore(temp_config_dir)
-        config.init()
-
-        value = config.get("nonexistent", "default")
-        assert value == "default"
-
-    def test_set_and_persist(self, temp_config_dir):
-        """Test setting value and persistence"""
-        config = ConfigStore(temp_config_dir)
-        config.init()
-
-        config.set("new_key", "new_value")
-
-        # Reload and check persistence
-        config2 = ConfigStore(temp_config_dir)
-        value = config2.get("new_key")
-        assert value == "new_value"
-
-    def test_set_creates_nested_structure(self, temp_config_dir):
-        """Test that set creates nested structure with dot notation"""
-        config = ConfigStore(temp_config_dir)
-        config.init()
-
-        config.set("deep.nested.key", "value")
-        value = config.get("deep.nested.key")
-
-        assert value == "value"
-
-    def test_update_multiple_values(self, temp_config_dir):
-        """Test updating multiple configuration values"""
-        config = ConfigStore(temp_config_dir)
-        config.init()
-
-        updates = {"key1": "value1", "key2": "value2"}
-        config.update(updates)
-
-        assert config.get("key1") == "value1"
-        assert config.get("key2") == "value2"
+from src.storage import StateStore, SecretsStore, StorageManager
 
 
 class TestStateStore:
@@ -358,7 +262,6 @@ class TestStorageManager:
         storage = StorageManager(temp_config_dir)
         storage.init()
 
-        assert storage.config.config_file.exists()
         assert storage.state.state_file.exists()
         assert storage.secrets.vault_file.exists()
 
@@ -366,10 +269,8 @@ class TestStorageManager:
         """Test loading all data from storage"""
         data = storage_with_data.load_all()
 
-        assert "config" in data
         assert "state" in data
         assert "secrets" in data
-        assert data["config"]["provider"] == "hetzner"
         assert "test-server" in data["state"]["servers"]
 
     def test_backup_creates_timestamped_copy(self, storage_with_data):
@@ -382,7 +283,6 @@ class TestStorageManager:
         # Check backup contains expected files
         backed_up_files = list(backup_path.glob("*"))
         file_names = [f.name for f in backed_up_files]
-        assert "config.yaml" in file_names
         assert "state.json" in file_names
         assert "credentials.vault" in file_names
 

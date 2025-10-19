@@ -1,165 +1,111 @@
 """
-Configuration routes for LivChatSetup API
+Config management endpoints
 
-Endpoints for configuration management (synchronous):
-- GET /api/config - Get all configuration
-- GET /api/config/{key} - Get specific config value
-- PUT /api/config/{key} - Set config value
-- POST /api/config - Update multiple values
+DEPRECATED: ConfigStore removed in favor of environment variables
+These endpoints now return empty/default values for backwards compatibility
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, HTTPException, Depends, status
+from pydantic import BaseModel
+from typing import Any, Dict, Optional
 import logging
 
-try:
-    from ..dependencies import get_orchestrator
-    from ..models.config import (
-        ConfigGetResponse,
-        ConfigSetRequest,
-        ConfigSetResponse,
-        ConfigAllResponse,
-        ConfigUpdateRequest,
-        ConfigUpdateResponse
-    )
-    from ...orchestrator import Orchestrator
-except ImportError:
-    from src.api.dependencies import get_orchestrator
-    from src.api.models.config import (
-        ConfigGetResponse,
-        ConfigSetRequest,
-        ConfigSetResponse,
-        ConfigAllResponse,
-        ConfigUpdateRequest,
-        ConfigUpdateResponse
-    )
-    from src.orchestrator import Orchestrator
+from ..dependencies import get_orchestrator
 
 logger = logging.getLogger(__name__)
 
-# Create router
-router = APIRouter(prefix="/api/config", tags=["Configuration"])
+router = APIRouter(
+    prefix="/config",
+    tags=["config"]
+)
 
 
-@router.get("", response_model=ConfigAllResponse)
-async def get_all_config(
-    orchestrator: Orchestrator = Depends(get_orchestrator)
-):
+class ConfigValue(BaseModel):
+    """Config value request/response"""
+    value: Any
+
+
+class ConfigUpdate(BaseModel):
+    """Bulk config update"""
+    updates: Dict[str, Any]
+
+
+@router.get("/")
+async def get_all_config(orchestrator = Depends(get_orchestrator)):
     """
-    Get all configuration
-
-    Returns the complete configuration dictionary.
-    Configuration is stored in ~/.livchat/config.yaml
+    DEPRECATED: Get all configuration
+    
+    Returns minimal defaults for backwards compatibility
     """
-    try:
-        config = orchestrator.storage.config.load()
+    logger.warning("DEPRECATED: /config endpoint called - use environment variables instead")
+    
+    # Return minimal defaults
+    return {
+        "success": True,
+        "data": {
+            "admin_email": orchestrator.storage.state.get_setting("email", "admin@localhost"),
+            "provider": "hetzner",  # Hardcoded for now
+            "_deprecated": True,
+            "_message": "ConfigStore removed. Settings now in state.json"
+        }
+    }
 
-        return ConfigAllResponse(config=config)
 
-    except Exception as e:
-        logger.error(f"Failed to get configuration: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/{key}", response_model=ConfigGetResponse)
-async def get_config_value(
-    key: str,
-    orchestrator: Orchestrator = Depends(get_orchestrator)
-):
+@router.get("/{key}")
+async def get_config_value(key: str, orchestrator = Depends(get_orchestrator)):
     """
-    Get specific configuration value
-
-    Supports dot notation for nested keys (e.g., "providers.hetzner.region")
-
-    Raises:
-        404: Key not found
+    DEPRECATED: Get specific config value
+    
+    Returns default values for known keys
     """
-    try:
-        value = orchestrator.storage.config.get(key)
+    logger.warning(f"DEPRECATED: /config/{key} called - use state.json settings")
 
-        if value is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Configuration key '{key}' not found"
-            )
+    # Return defaults for known keys
+    defaults = {
+        "admin_email": orchestrator.storage.state.get_setting("email", "admin@localhost"),
+        "provider": "hetzner",
+        "region": "nbg1",
+        "server_type": "cx21"
+    }
+    
+    if key in defaults:
+        return {"success": True, "value": defaults[key]}
+    
+    raise HTTPException(
+        status_code=404,
+        detail=f"Config key '{key}' not found. Use environment variables instead."
+    )
 
-        return ConfigGetResponse(key=key, value=value)
 
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get config key {key}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.put("/{key}", response_model=ConfigSetResponse)
-async def set_config_value(
-    key: str,
-    request: ConfigSetRequest,
-    orchestrator: Orchestrator = Depends(get_orchestrator)
-):
+@router.post("/{key}")
+async def set_config_value(key: str, request: ConfigValue, orchestrator = Depends(get_orchestrator)):
     """
-    Set configuration value
-
-    Updates or creates a configuration value.
-    Supports dot notation for nested keys (e.g., "providers.hetzner.token")
-
-    Configuration is automatically saved to ~/.livchat/config.yaml
+    DEPRECATED: Set config value
+    
+    No-op for backwards compatibility
     """
-    try:
-        orchestrator.storage.config.set(key, request.value)
-
-        logger.info(f"Configuration key '{key}' set to: {request.value}")
-
-        return ConfigSetResponse(
-            success=True,
-            message=f"Configuration key '{key}' updated successfully",
-            key=key,
-            value=request.value
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to set config key {key}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    logger.warning(f"DEPRECATED: POST /config/{key} called - this is now a no-op")
+    logger.info(f"Attempted to set {key}={request.value} (ignored, use environment variables)")
+    
+    return {
+        "success": False,
+        "message": "ConfigStore removed. Use LIVCHAT_ADMIN_EMAIL environment variable instead",
+        "_deprecated": True
+    }
 
 
-@router.post("", response_model=ConfigUpdateResponse)
-async def update_config(
-    request: ConfigUpdateRequest,
-    orchestrator: Orchestrator = Depends(get_orchestrator)
-):
+@router.put("/")
+async def update_config(request: ConfigUpdate, orchestrator = Depends(get_orchestrator)):
     """
-    Update multiple configuration values
-
-    Performs a bulk update of configuration values.
-    All updates are applied in a single save operation.
-
-    Returns count of updated keys and list of keys that were updated.
+    DEPRECATED: Bulk update config
+    
+    No-op for backwards compatibility
     """
-    try:
-        updates = request.updates
-        updated_keys = list(updates.keys())
-        updated_count = len(updated_keys)
-
-        if updated_count == 0:
-            return ConfigUpdateResponse(
-                success=True,
-                message="No updates provided",
-                updated_count=0,
-                updated_keys=[]
-            )
-
-        # Update all keys
-        orchestrator.storage.config.update(updates)
-
-        logger.info(f"Updated {updated_count} configuration keys: {updated_keys}")
-
-        return ConfigUpdateResponse(
-            success=True,
-            message=f"Updated {updated_count} configuration values",
-            updated_count=updated_count,
-            updated_keys=updated_keys
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to update configuration: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+    logger.warning("DEPRECATED: PUT /config called - this is now a no-op")
+    logger.info(f"Attempted bulk config update (ignored): {list(request.updates.keys())}")
+    
+    return {
+        "success": False,
+        "message": "ConfigStore removed. Use environment variables instead",
+        "_deprecated": True
+    }

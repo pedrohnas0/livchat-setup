@@ -9,17 +9,16 @@ logging.basicConfig(
 )
 
 # Public API imports
-from .orchestrator import Orchestrator, LivChatSetup
-from .storage import StorageManager, ConfigStore, StateStore, SecretsStore
+from .orchestrator_old import Orchestrator, LivChatSetup
+from .storage import StorageManager, StateStore, SecretsStore
 
 # Version info
-__version__ = "0.2.4"  # v0.2.4: Fixed list-deployed-apps, DNS prefixes, infrastructure naming
+__version__ = "0.2.5"  # v0.2.5: Removed ConfigStore, settings in state.json
 
 # Public exports
 __all__ = [
     "Orchestrator",
     "StorageManager",
-    "ConfigStore",
     "StateStore",
     "SecretsStore",
     # Compatibility exports

@@ -27,7 +27,7 @@ from typing import Dict, List, Optional
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from src.orchestrator import Orchestrator
+from src.orchestrator_old import Orchestrator
 from src.storage import StorageManager
 
 # Configure clean logging - only essentials

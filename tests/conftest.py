@@ -106,8 +106,7 @@ def storage_with_data(temp_config_dir, sample_config, sample_server_data):
     storage = StorageManager(temp_config_dir)
     storage.init()
 
-    # Add sample data
-    storage.config.save(sample_config)
+    # Add sample data (config removed in v0.2.5)
     storage.state.add_server("test-server", sample_server_data)
     storage.secrets.set_secret("test_token", "secret123")
 
@@ -117,7 +116,7 @@ def storage_with_data(temp_config_dir, sample_config, sample_server_data):
 @pytest.fixture
 def orchestrator_with_provider(temp_config_dir, mock_hcloud_client):
     """Create Orchestrator with mocked provider"""
-    from src.orchestrator import Orchestrator
+    from src.orchestrator_old import Orchestrator
 
     orchestrator = Orchestrator(temp_config_dir)
     orchestrator.init()

@@ -12,7 +12,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.job_manager import Job, JobStatus
-from src.orchestrator import Orchestrator
+from src.orchestrator_old import Orchestrator
 
 
 class TestServerExecutors:

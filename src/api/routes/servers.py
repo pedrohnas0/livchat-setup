@@ -31,7 +31,7 @@ try:
         DNSConfig
     )
     from ...job_manager import JobManager
-    from ...orchestrator import Orchestrator
+    from ...orchestrator_old import Orchestrator
 except ImportError:
     from src.api.dependencies import get_job_manager, get_orchestrator
     from src.api.models.server import (
@@ -48,7 +48,7 @@ except ImportError:
         DNSConfig
     )
     from src.job_manager import JobManager
-    from src.orchestrator import Orchestrator
+    from src.orchestrator_old import Orchestrator
 
 logger = logging.getLogger(__name__)
 

@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 
 from src.api.dependencies import get_orchestrator, reset_orchestrator
-from src.orchestrator import Orchestrator
+from src.orchestrator_old import Orchestrator
 
 
 class TestGetOrchestrator:

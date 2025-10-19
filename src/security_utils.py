@@ -196,12 +196,12 @@ class CredentialsManager:
         Returns:
             AppCredentials object
         """
-        # Email is required - either provided or from config
+        # Email is required - either provided or from settings
         if not email:
-            # Try to get from config
-            email_config = self.storage.config.get("admin_email")
+            # Try to get from state.json settings
+            email_config = self.storage.state.get_setting("email")
             if not email_config:
-                raise ValueError("Email is required. Please provide email or set 'admin_email' in config")
+                raise ValueError("Email is required. Please provide email or set 'email' in settings")
             email = email_config
 
         # For Portainer and similar apps, use email as username by default
@@ -288,7 +288,7 @@ class CredentialsManager:
                 # Legacy format - just password
                 return AppCredentials(
                     app_name=app_name,
-                    email=self.storage.config.get("admin_email", "admin@localhost"),
+                    email=self.storage.state.get_setting("email", "admin@localhost"),
                     username="admin",
                     password=cred_dict,
                     url=None
@@ -297,7 +297,7 @@ class CredentialsManager:
                 # New format - full credentials
                 return AppCredentials(
                     app_name=app_name,
-                    email=cred_dict.get("email", self.storage.config.get("admin_email", "admin@localhost")),
+                    email=cred_dict.get("email", self.storage.state.get_setting("email", "admin@localhost")),
                     username=cred_dict.get("username", "admin"),
                     password=cred_dict.get("password", ""),
                     url=cred_dict.get("url"),

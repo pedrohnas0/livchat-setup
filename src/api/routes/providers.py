@@ -23,7 +23,7 @@ try:
         ServerTypeInfo,
         ServerTypeListResponse
     )
-    from ...orchestrator import Orchestrator
+    from ...orchestrator_old import Orchestrator
     from ...providers.hetzner import HetznerProvider
 except ImportError:
     from src.api.dependencies import get_orchestrator
@@ -36,7 +36,7 @@ except ImportError:
         ServerTypeInfo,
         ServerTypeListResponse
     )
-    from src.orchestrator import Orchestrator
+    from src.orchestrator_old import Orchestrator
     from src.providers.hetzner import HetznerProvider
 
 logger = logging.getLogger(__name__)

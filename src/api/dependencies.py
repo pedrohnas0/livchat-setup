@@ -10,10 +10,10 @@ from typing import Optional
 import logging
 
 try:
-    from ..orchestrator import Orchestrator
+    from ..orchestrator_old import Orchestrator
     from ..job_manager import JobManager
 except ImportError:
-    from src.orchestrator import Orchestrator
+    from src.orchestrator_old import Orchestrator
     from src.job_manager import JobManager
 
 logger = logging.getLogger(__name__)
@@ -44,14 +44,13 @@ def get_orchestrator() -> Orchestrator:
         # Initialize (creates ~/.livchat if needed)
         _orchestrator.init()
 
-        # Try to load existing configuration
+        # Try to load existing state
         # This allows API to work with CLI-configured system
         try:
-            _orchestrator.storage.config.load()
             _orchestrator.storage.state.load()
-            logger.info("Loaded existing configuration and state")
+            logger.info("Loaded existing state")
         except Exception as e:
-            logger.debug(f"No existing config to load (this is OK): {e}")
+            logger.debug(f"No existing state to load (this is OK): {e}")
             # Not an error - system might not be initialized yet
 
     return _orchestrator
