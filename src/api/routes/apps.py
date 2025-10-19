@@ -24,7 +24,7 @@ try:
         DeployedAppListResponse
     )
     from ...job_manager import JobManager
-    from ...orchestrator_old import Orchestrator
+    from ...orchestrator import Orchestrator
     from ...app_registry import AppRegistry
 except ImportError:
     from src.api.dependencies import get_job_manager, get_orchestrator
@@ -38,7 +38,7 @@ except ImportError:
         DeployedAppListResponse
     )
     from src.job_manager import JobManager
-    from src.orchestrator_old import Orchestrator
+    from src.orchestrator import Orchestrator
     from src.app_registry import AppRegistry
 
 logger = logging.getLogger(__name__)

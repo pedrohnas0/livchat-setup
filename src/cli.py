@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 
 try:
-    from .orchestrator_old import Orchestrator
+    from .orchestrator import Orchestrator
 except ImportError:
     # For direct execution
     from orchestrator import Orchestrator

@@ -14,11 +14,11 @@ import logging
 try:
     from ..dependencies import get_orchestrator
     from ..models.common import SuccessResponse, MessageResponse
-    from ...orchestrator_old import Orchestrator
+    from ...orchestrator import Orchestrator
 except ImportError:
     from src.api.dependencies import get_orchestrator
     from src.api.models.common import SuccessResponse, MessageResponse
-    from src.orchestrator_old import Orchestrator
+    from src.orchestrator import Orchestrator
 
 logger = logging.getLogger(__name__)
 

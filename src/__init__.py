@@ -9,8 +9,11 @@ logging.basicConfig(
 )
 
 # Public API imports
-from .orchestrator_old import Orchestrator, LivChatSetup
+from .orchestrator import Orchestrator
 from .storage import StorageManager, StateStore, SecretsStore
+
+# Compatibility alias
+LivChatSetup = Orchestrator
 
 # Version info
 __version__ = "0.2.5"  # v0.2.5: Removed ConfigStore, settings in state.json

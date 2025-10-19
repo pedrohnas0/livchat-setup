@@ -16,7 +16,7 @@ import logging
 from typing import Optional, Callable, Awaitable, Dict
 
 from src.job_manager import JobManager, Job, JobStatus
-from src.orchestrator_old import Orchestrator
+from src.orchestrator import Orchestrator
 
 logger = logging.getLogger(__name__)
 

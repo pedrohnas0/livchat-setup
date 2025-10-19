@@ -20,7 +20,7 @@ try:
         SecretSetResponse,
         SecretDeleteResponse
     )
-    from ...orchestrator_old import Orchestrator
+    from ...orchestrator import Orchestrator
 except ImportError:
     from src.api.dependencies import get_orchestrator
     from src.api.models.secrets import (
@@ -30,7 +30,7 @@ except ImportError:
         SecretSetResponse,
         SecretDeleteResponse
     )
-    from src.orchestrator_old import Orchestrator
+    from src.orchestrator import Orchestrator
 
 logger = logging.getLogger(__name__)
 

@@ -10,10 +10,10 @@ from typing import Optional
 import logging
 
 try:
-    from ..orchestrator_old import Orchestrator
+    from ...orchestrator import Orchestrator
     from ..job_manager import JobManager
 except ImportError:
-    from src.orchestrator_old import Orchestrator
+    from src.orchestrator import Orchestrator
     from src.job_manager import JobManager
 
 logger = logging.getLogger(__name__)
