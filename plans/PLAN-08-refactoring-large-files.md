@@ -315,7 +315,7 @@ tests/
 - [ ] Rodar suite completa - tudo verde
 - [ ] Baseline: pytest --cov=src (registrar %)
 
-### Fase 1: orchestrator.py (Prioridade MÁXIMA) - 🟡 EM PROGRESSO (~85% completo)
+### Fase 1: orchestrator.py (Prioridade MÁXIMA) - ✅ COMPLETA (100%)
 
 #### ✅ Managers Implementados (Completo)
 - [x] Mapear todos os métodos e responsabilidades
@@ -325,22 +325,21 @@ tests/
 - [x] Implementar DeploymentManager (387 linhas, tests passing) ✅
 - [x] Implementar DNSManager (120 linhas) ✅
 
-#### 🟡 Core.py - QUASE COMPLETO (Falta Infraestrutura)
+#### ✅ Core.py - COMPLETO
 
 **STATUS ATUAL:**
 - ✅ Facade pattern implementado
 - ✅ Todos os managers inicializados e conectados
 - ✅ Delegação funcionando para: servers, deployment, DNS, provider
-- ❌ FALTANDO: Métodos de infraestrutura (deploy_traefik, deploy_portainer, setup_server)
+- ✅ Métodos de infraestrutura implementados (deploy_traefik, deploy_portainer, setup_server)
+- ✅ orchestrator_old.py deletado (apenas backup permanece)
+- ✅ E2E test PASSED (2025-10-20) - 9 minutos de execução completa
+- ✅ Portainer authentication funcionando
+- ✅ Infrastructure deployment completo
 
-**PROBLEMA DESCOBERTO:**
-- `orchestrator_old.py` (1130 linhas) ainda está sendo usado por `infrastructure_executor.py` e `server_executor.py`
-- E2E test falha porque `core.py` não tem métodos de infraestrutura
-- Portainer authentication failing: orchestrator_old.py inicializa cliente, mas core.py cria novo cliente
-
-**SOLUÇÃO (Padrão DELEGATION):**
+**SOLUÇÃO IMPLEMENTADA (Padrão DELEGATION):**
 ```python
-# orchestrator_old.py usa DELEGATION (padrão correto):
+# core.py usa DELEGATION (padrão correto implementado):
 def deploy_traefik(self, server_name: str, ssl_email: str = None) -> bool:
     server = self.get_server(server_name)
     if not server:
@@ -352,22 +351,20 @@ def deploy_traefik(self, server_name: str, ssl_email: str = None) -> bool:
 
     result = self.server_setup.deploy_traefik(server, config)  # ← DELEGA
     return result.success
-
-# core.py precisa do MESMO PADRÃO (não copiar lógica toda)
 ```
 
-#### 📋 Checklist Detalhado: Completar core.py
+#### 📋 Checklist Detalhado: Completar core.py - ✅ COMPLETO
 
 **Etapa 1: Adicionar Componentes de Infraestrutura**
-- [ ] Importar `AnsibleRunner` e `ServerSetup` em core.py
-- [ ] Adicionar ao `__init__`:
+- [x] Importar `AnsibleRunner` e `ServerSetup` em core.py
+- [x] Adicionar ao `__init__`:
   ```python
   self.ansible_runner = AnsibleRunner(self.ssh_manager)
   self.server_setup = ServerSetup(self.ansible_runner, self.storage)
   ```
 
 **Etapa 2: Métodos Thin Wrappers (Infraestrutura)**
-- [ ] Adicionar `deploy_traefik(server_name, ssl_email)` - delegado a server_setup (2-5 linhas)
+- [x] Adicionar `deploy_traefik(server_name, ssl_email)` - delegado a server_setup (2-5 linhas)
   ```python
   def deploy_traefik(self, server_name: str, ssl_email: str = None) -> bool:
       server = self.get_server(server_name)
@@ -382,7 +379,7 @@ def deploy_traefik(self, server_name: str, ssl_email: str = None) -> bool:
       return result.success
   ```
 
-- [ ] Adicionar `deploy_portainer(server_name, config)` - wrapper + admin init (~30 linhas)
+- [x] Adicionar `deploy_portainer(server_name, config)` - wrapper + admin init (~30 linhas)
   ```python
   def deploy_portainer(self, server_name: str, config: Dict = None) -> bool:
       server = self.get_server(server_name)
@@ -409,7 +406,7 @@ def deploy_traefik(self, server_name: str, ssl_email: str = None) -> bool:
       return result.success
   ```
 
-- [ ] Adicionar `setup_server(server_name, zone_name, subdomain, config)` - delega a server_setup (~15 linhas)
+- [x] Adicionar `setup_server(server_name, zone_name, subdomain, config)` - delega a server_setup (~15 linhas)
   ```python
   def setup_server(self, server_name: str, zone_name: str,
                    subdomain: Optional[str] = None,
@@ -446,19 +443,19 @@ def deploy_traefik(self, server_name: str, ssl_email: str = None) -> bool:
   ```
 
 **Etapa 3: Métodos CLI (Opcionais - apenas se usados)**
-- [ ] Adicionar `install_docker(server_name)` - delegado a server_setup (2-5 linhas)
-- [ ] Adicionar `init_swarm(server_name, network_name)` - delegado a server_setup (2-5 linhas)
+- [x] Métodos não necessários - setup via job executors funciona perfeitamente
 
-**Etapa 4: Validação**
-- [ ] Rodar testes unitários: `pytest tests/unit/orchestrator/ -v`
-- [ ] Rodar E2E test: `cd mcp-server && npm run test:e2e` (OBRIGATÓRIO)
-- [ ] Verificar Portainer authentication funcionando
-- [ ] Verificar infrastructure deployment completo
+**Etapa 4: Validação** - ✅ COMPLETO
+- [x] Rodar testes unitários: `pytest tests/unit/orchestrator/ -v`
+- [x] Rodar E2E test: `cd mcp-server && npm run test:e2e` (✅ PASSOU - 2025-10-20)
+- [x] Verificar Portainer authentication funcionando (✅ OK)
+- [x] Verificar infrastructure deployment completo (✅ OK - Traefik + Portainer + N8N)
 
-**Etapa 5: Cleanup Final**
-- [ ] Deletar `orchestrator_old.py` (após E2E passar)
-- [ ] Atualizar imports em `infrastructure_executor.py` e `server_executor.py`
-- [ ] Commitar mudanças
+**Etapa 5: Cleanup Final** - ✅ COMPLETO
+- [x] Deletar `orchestrator_old.py` (✅ Deletado - apenas .backup resta)
+- [x] Atualizar imports em `infrastructure_executor.py` e `server_executor.py` (✅ OK)
+- [x] Correção crítica: ServerManager métodos (create, delete, list, get)
+- [x] Commitar mudanças
 
 ### Fase 2: server_setup.py
 - [ ] Criar estrutura src/server_setup/
@@ -533,29 +530,30 @@ def deploy_traefik(self, server_name: str, ssl_email: str = None) -> bool:
 
 ## 📊 Status
 
-- 🟡 **EM PROGRESSO** (Fase 1 - 85% completa)
+- ✅ **FASE 1 COMPLETA** (100%) - orchestrator.py refatorado com sucesso!
 - Criado: 2025-10-19
-- Atualizado: 2025-10-19 (v0.2.6 - após investigação profunda)
+- Atualizado: 2025-10-20 (v0.2.7 - Fase 1 COMPLETA)
 - Progresso Fase 1:
   - ✅ ProviderManager (46 linhas, 6 tests) - COMPLETO
   - ✅ ServerManager (151 linhas, 14 tests) - COMPLETO
   - ✅ DeploymentManager (387 linhas, tests passing) - COMPLETO
   - ✅ DNSManager (120 linhas) - COMPLETO
-  - 🟡 core.py facade (283 linhas) - FALTA INFRAESTRUTURA
+  - ✅ core.py facade (461 linhas) - COMPLETO
     - ✅ Facade pattern implementado
     - ✅ Todos os managers conectados
-    - ❌ **FALTAM 3 MÉTODOS**: deploy_traefik, deploy_portainer, setup_server
-- Bloqueio Atual:
-  - orchestrator_old.py (1130 linhas) ainda em uso
-  - E2E test falhando por falta de métodos de infraestrutura em core.py
-  - Portainer authentication failing (dois orchestradores coexistindo)
-- Próximos Passos (15 minutos de trabalho):
-  1. Adicionar ansible_runner + server_setup ao core.py __init__
-  2. Adicionar 3 thin wrapper methods (deploy_traefik, deploy_portainer, setup_server)
-  3. Rodar E2E test para validar
-  4. Deletar orchestrator_old.py
-- Estimativa restante: **~1-2h** (último sprint!)
-- Prioridade: **CRÍTICA** (fundação para manutenibilidade)
+    - ✅ Métodos de infraestrutura implementados (deploy_traefik, deploy_portainer, setup_server)
+    - ✅ Correção crítica: ServerManager delegation (create, delete, list, get)
+- Validação Final:
+  - ✅ orchestrator_old.py deletado (apenas .backup permanece)
+  - ✅ E2E test PASSED (2025-10-20, 9 minutos, servidor real Hetzner)
+  - ✅ Portainer authentication funcionando
+  - ✅ Infrastructure deployment completo (Traefik + Portainer)
+  - ✅ Auto-dependency resolution funcionando (N8N + PostgreSQL + Redis)
+- Próximos Passos:
+  - 🔵 Fase 2: server_setup.py (746 linhas) - PRONTO PARA INICIAR
+  - 🔵 Fase 3: app_deployer.py (642 linhas)
+  - 🔵 Fase 4: storage.py (661 linhas) - Opcional (já bem organizado)
+- Prioridade: **MÉDIACONCLUÍDA (Fase 2 pode ser feita conforme necessidade)**
 
 ## 🎯 Descobertas da Investigação Profunda
 
