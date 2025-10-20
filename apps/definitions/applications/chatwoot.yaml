@@ -68,6 +68,7 @@ health_check:
   start_period: 120s
 
 dependencies:
+  - infrastructure  # Requires Traefik (reverse proxy) + Portainer (deployment)
   - postgres
   - redis
 

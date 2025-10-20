@@ -91,7 +91,8 @@ class Orchestrator:
         self.deployment_manager = DeploymentManager(
             storage=self.storage,
             app_registry=self.app_registry,
-            ssh_manager=self.ssh_manager
+            ssh_manager=self.ssh_manager,
+            orchestrator=self  # Pass self for ansible-based deployments
         )
 
         self.dns_manager = DNSManager(
@@ -260,16 +261,15 @@ class Orchestrator:
         """
         Deploy an application with automatic dependency resolution
 
-        Before deploying, initializes Portainer for the server
+        Note: Portainer initialization is now lazy - only initialized when needed
+        by the deployment_manager based on the app's deploy_method
         """
-        # Initialize Portainer for this server
-        if not self._init_portainer_for_server(server_name):
-            return {
-                "success": False,
-                "error": "Failed to initialize Portainer client"
-            }
+        # Try to initialize Portainer for this server (lazy - won't fail if Portainer doesn't exist yet)
+        # This is needed for apps that use deploy_method: portainer
+        # For infrastructure apps (deploy_method: ansible), this is skipped
+        self._init_portainer_for_server(server_name)  # Best effort, don't fail
 
-        # Update deployment manager with clients
+        # Update deployment manager with clients (might be None if Portainer not available yet)
         self.deployment_manager.portainer = self.portainer
         self.deployment_manager.cloudflare = self.cloudflare
 

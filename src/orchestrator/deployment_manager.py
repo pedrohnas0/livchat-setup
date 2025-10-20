@@ -5,6 +5,7 @@ Extracted from orchestrator.py for better modularity (PLAN-08)
 """
 import logging
 import time
+import asyncio
 from typing import Optional, Dict, Any, List
 
 try:
@@ -38,7 +39,8 @@ class DeploymentManager:
         app_registry: AppRegistry,
         portainer=None,
         cloudflare=None,
-        ssh_manager=None
+        ssh_manager=None,
+        orchestrator=None
     ):
         """
         Initialize DeploymentManager
@@ -49,12 +51,14 @@ class DeploymentManager:
             portainer: Optional Portainer client
             cloudflare: Optional Cloudflare client
             ssh_manager: Optional SSH manager for remote operations
+            orchestrator: Optional orchestrator reference for infrastructure deployments
         """
         self.storage = storage
         self.app_registry = app_registry
         self.portainer = portainer
         self.cloudflare = cloudflare
         self.ssh_manager = ssh_manager
+        self.orchestrator = orchestrator  # For ansible-based deployments
         self.app_deployer = None  # Lazy initialized
 
     def _ensure_app_deployer(self) -> bool:
@@ -86,6 +90,130 @@ class DeploymentManager:
         except Exception as e:
             logger.error(f"Failed to initialize App Deployer: {e}")
             return False
+
+    async def _deploy_by_method(
+        self,
+        app_name: str,
+        server: Dict[str, Any],
+        app_config: Dict[str, Any],
+        app_def: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Route deployment based on deploy_method from app definition
+
+        Args:
+            app_name: Name of the app to deploy
+            server: Server information dictionary
+            app_config: Configuration for deployment
+            app_def: App definition from registry
+
+        Returns:
+            Deployment result dictionary
+        """
+        deploy_method = app_def.get("deploy_method", "portainer")
+        server_name = server.get("name")
+
+        logger.info(f"Deploying {app_name} using method: {deploy_method}")
+
+        if deploy_method == "ansible":
+            # Deploy infrastructure apps via Ansible
+            if not self.orchestrator:
+                return {
+                    "success": False,
+                    "error": "Orchestrator reference required for ansible deployments"
+                }
+
+            if app_name == "infrastructure":
+                # Infrastructure is a bundle - deploy both Traefik and Portainer
+                logger.info("Deploying infrastructure bundle (Traefik + Portainer)...")
+
+                # Deploy Traefik first
+                traefik_result = await asyncio.to_thread(
+                    self.orchestrator.deploy_traefik,
+                    server_name=server_name,
+                    ssl_email=app_config.get("admin_email", "admin@localhost")
+                )
+
+                if not traefik_result:
+                    return {
+                        "success": False,
+                        "error": "Failed to deploy Traefik",
+                        "app": "traefik"
+                    }
+
+                logger.info("Traefik deployed successfully")
+
+                # Deploy Portainer second
+                portainer_result = await asyncio.to_thread(
+                    self.orchestrator.deploy_portainer,
+                    server_name=server_name,
+                    config=app_config
+                )
+
+                if not portainer_result:
+                    return {
+                        "success": False,
+                        "error": "Failed to deploy Portainer",
+                        "app": "portainer"
+                    }
+
+                logger.info("Portainer deployed successfully")
+
+                return {
+                    "success": True,
+                    "app": app_name,
+                    "message": "Infrastructure bundle deployed (Traefik + Portainer)"
+                }
+
+            elif app_name == "portainer":
+                # Direct Portainer deployment
+                result = await asyncio.to_thread(
+                    self.orchestrator.deploy_portainer,
+                    server_name=server_name,
+                    config=app_config
+                )
+
+                return {
+                    "success": result,
+                    "app": app_name,
+                    "message": "Portainer deployed" if result else "Portainer deployment failed"
+                }
+
+            elif app_name == "traefik":
+                # Direct Traefik deployment
+                result = await asyncio.to_thread(
+                    self.orchestrator.deploy_traefik,
+                    server_name=server_name,
+                    ssl_email=app_config.get("admin_email", "admin@localhost")
+                )
+
+                return {
+                    "success": result,
+                    "app": app_name,
+                    "message": "Traefik deployed" if result else "Traefik deployment failed"
+                }
+
+            else:
+                return {
+                    "success": False,
+                    "error": f"Unknown ansible-based app: {app_name}"
+                }
+
+        elif deploy_method == "portainer":
+            # Deploy via Portainer API
+            if not self._ensure_app_deployer():
+                return {
+                    "success": False,
+                    "error": "Failed to initialize App Deployer for Portainer deployment"
+                }
+
+            return await self.app_deployer.deploy(server, app_name, app_config)
+
+        else:
+            return {
+                "success": False,
+                "error": f"Unknown deploy_method: {deploy_method}"
+            }
 
     async def deploy_app(
         self,
@@ -142,12 +270,8 @@ class DeploymentManager:
 
         logger.info(f"Installing: {' -> '.join(apps_to_install)}")
 
-        # Ensure App Deployer is ready
-        if not self._ensure_app_deployer():
-            return {
-                "success": False,
-                "error": "Failed to initialize App Deployer"
-            }
+        # Note: App Deployer initialization moved to _deploy_by_method()
+        # to support both ansible and portainer deployment methods
 
         # Prepare configuration
         if not config:
@@ -257,8 +381,8 @@ class DeploymentManager:
                             else:
                                 logger.warning(f"Failed to create database: {db_result.get('error')}")
 
-            # Deploy the current app
-            result = await self.app_deployer.deploy(server, current_app, app_config)
+            # Deploy the current app using appropriate method (ansible or portainer)
+            result = await self._deploy_by_method(current_app, server, app_config, app_def)
 
             if not result.get("success"):
                 return {
@@ -279,8 +403,8 @@ class DeploymentManager:
                 time.sleep(15)
                 logger.info(f"{current_app} should be ready now")
 
-            # Configure DNS if Cloudflare is configured
-            if self.cloudflare:
+            # Configure DNS if Cloudflare is configured (only for Portainer-based apps)
+            if self.cloudflare and self.app_deployer:
                 dns_config = server.get("dns_config", {})
                 if dns_config.get("zone_name"):
                     dns_result = await self.app_deployer.configure_dns(
