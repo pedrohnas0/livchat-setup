@@ -388,7 +388,7 @@ class TestDeleteServerEndpoint:
 
         assert job is not None
         assert job.job_type == "delete_server"
-        assert job.params["name"] == "test-server"
+        assert job.params["server_name"] == "test-server"
         assert job.status == JobStatus.PENDING
 
 
@@ -420,8 +420,12 @@ class TestSetupServerEndpoint:
             "status": "running"
         })
 
+        setup_request = {
+            "zone_name": "example.com"
+        }
+
         # Act
-        response = client.post("/api/servers/test-server/setup")
+        response = client.post("/api/servers/test-server/setup", json=setup_request)
 
         # Assert
         assert response.status_code == 202
@@ -429,7 +433,10 @@ class TestSetupServerEndpoint:
     def test_setup_server_returns_404_for_nonexistent(self):
         """Should return 404 for non-existent server"""
         # Act
-        response = client.post("/api/servers/nonexistent/setup")
+        setup_request = {
+            "zone_name": "example.com"
+        }
+        response = client.post("/api/servers/nonexistent/setup", json=setup_request)
 
         # Assert
         assert response.status_code == 404
@@ -445,8 +452,12 @@ class TestSetupServerEndpoint:
             "status": "running"
         })
 
+        setup_request = {
+            "zone_name": "example.com"
+        }
+
         # Act
-        response = client.post("/api/servers/test-server/setup")
+        response = client.post("/api/servers/test-server/setup", json=setup_request)
 
         # Assert
         data = response.json()
@@ -466,8 +477,12 @@ class TestSetupServerEndpoint:
             "status": "running"
         })
 
+        setup_request = {
+            "zone_name": "example.com"
+        }
+
         # Act
-        response = client.post("/api/servers/test-server/setup")
+        response = client.post("/api/servers/test-server/setup", json=setup_request)
 
         # Assert
         from src.api.dependencies import get_job_manager
@@ -477,7 +492,7 @@ class TestSetupServerEndpoint:
 
         assert job is not None
         assert job.job_type == "setup_server"
-        assert job.params["name"] == "test-server"
+        assert job.params["server_name"] == "test-server"
         assert job.status == JobStatus.PENDING
 
     def test_setup_server_accepts_options(self):
@@ -492,10 +507,11 @@ class TestSetupServerEndpoint:
         })
 
         setup_options = {
-            "install_docker": True,
-            "init_swarm": True,
-            "deploy_traefik": False,
-            "deploy_portainer": True
+            "zone_name": "example.com",
+            "subdomain": "lab",
+            "ssl_email": "admin@example.com",
+            "network_name": "test_network",
+            "timezone": "America/Sao_Paulo"
         }
 
         # Act
@@ -507,8 +523,9 @@ class TestSetupServerEndpoint:
         data = response.json()
         job = manager.get_job(data["job_id"])
 
-        assert job.params["install_docker"] is True
-        assert job.params["deploy_traefik"] is False
+        assert job.params["zone_name"] == "example.com"
+        assert job.params["subdomain"] == "lab"
+        assert job.params["ssl_email"] == "admin@example.com"
 
 
 class TestServerRoutesIntegration:
@@ -565,7 +582,8 @@ class TestServerRoutesIntegration:
         assert response.json()["name"] == "lifecycle-test"
 
         # Setup server (async)
-        response = client.post("/api/servers/lifecycle-test/setup")
+        setup_request = {"zone_name": "example.com"}
+        response = client.post("/api/servers/lifecycle-test/setup", json=setup_request)
         assert response.status_code == 202
 
         # Delete server (async)
@@ -587,7 +605,7 @@ class TestServerRoutesIntegration:
             ("POST", "/api/servers", {"name": "new-server", "server_type": "cx21", "region": "nbg1"}),
             ("GET", "/api/servers", None),
             ("GET", "/api/servers/test-server", None),
-            ("POST", "/api/servers/test-server/setup", None),
+            ("POST", "/api/servers/test-server/setup", {"zone_name": "example.com"}),
             ("DELETE", "/api/servers/test-server", None),
         ]
 
@@ -667,9 +685,9 @@ class TestConfigureServerDNS:
 
         # Verify saved in state
         server = orchestrator.storage.state.get_server("test-server")
-        assert "dns_info" in server
-        assert server["dns_info"]["zone_name"] == "livchat.ai"
-        assert server["dns_info"]["subdomain"] == "lab"
+        assert "dns_config" in server
+        assert server["dns_config"]["zone_name"] == "livchat.ai"
+        assert server["dns_config"]["subdomain"] == "lab"
 
     def test_configure_dns_without_subdomain(self):
         """Should accept DNS config without subdomain"""
@@ -694,8 +712,8 @@ class TestConfigureServerDNS:
 
         # Verify saved in state
         server = orchestrator.storage.state.get_server("test-server")
-        assert server["dns_info"]["zone_name"] == "example.com"
-        assert "subdomain" not in server["dns_info"] or server["dns_info"]["subdomain"] is None
+        assert server["dns_config"]["zone_name"] == "example.com"
+        assert "subdomain" not in server["dns_config"] or server["dns_config"]["subdomain"] is None
 
     def test_configure_dns_returns_404_for_nonexistent_server(self):
         """Should return 404 for non-existent server"""
@@ -807,7 +825,7 @@ class TestGetServerDNS:
         orchestrator.storage.state.add_server("test-server", {
             "provider": "hetzner",
             "status": "running",
-            "dns_info": {
+            "dns_config": {
                 "zone_name": "livchat.ai",
                 "subdomain": "lab"
             }
@@ -827,7 +845,7 @@ class TestGetServerDNS:
         orchestrator.storage.state.add_server("test-server", {
             "provider": "hetzner",
             "status": "running",
-            "dns_info": {
+            "dns_config": {
                 "zone_name": "livchat.ai",
                 "subdomain": "lab"
             }
