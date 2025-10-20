@@ -132,7 +132,89 @@ MCP Server (TypeScript) → FastAPI → Orchestrator
 
 ---
 
-## 4. File Structure
+## 4. Dependencies Map
+
+### Visual Architecture (REAL - Validated from Code)
+```
+User (Claude AI / Python Direct)
+        │
+┌───────┴────────┐
+│  MCP / FastAPI │  ← Entry points
+└───────┬────────┘
+        │
+    ┌───▼───────────────────────────────────────┐
+    │    Orchestrator (core.py) - FACADE        │
+    └───┬───┬───┬───┬───┬───┬───┬───┬──────────┘
+        │   │   │   │   │   │   │   │
+  ┌─────┤   │   │   │   │   │   │   └────────────┐
+  │     │   │   │   │   │   │   │                │
+┌─▼─┐ ┌─▼┐ ┌▼┐ ┌▼┐ ┌▼──┐ ┌▼─┐ ┌▼───┐  ┌────────▼─┐
+│Prv│ │Srv│ │D│ │D│ │SSH│ │App│ │Srv │  │ Storage  │
+│Mgr│ │Mgr│ │M│ │N│ │Mgr│ │Reg│ │Set │  │ Manager  │
+└─┬─┘ └─┬─┘ │g│ │S│ └───┘ └─┬─┘ └─┬──┘  ├──────────┤
+  │     │   │r│ │ │         │     │     │State.json│
+  │     │   └┬┘ └┬┘         │     │     │Vault     │
+  │     │    │   │          │     │     └──────────┘
+  │     │    │   │          │     │
+┌─▼──┐  │  ┌─▼───▼──────────▼─────▼──┐
+│Hetz│  │  │   App Deployer           │
+│ner │  │  ├──────────────────────────┤
+└────┘  │  │• Portainer API           │
+        │  │• Cloudflare API          │
+        │  └──────────────────────────┘
+        │
+   ┌────▼──────────┐
+   │  Job System   │
+   ├───────────────┤
+   │• JobManager   │
+   │• JobExecutor  │
+   │• JobLogMgr    │
+   └───────────────┘
+```
+
+### Component Dependencies (Bottom-Up)
+**External Services** (Tier 6 - Leaves):
+- `HetznerProvider` ← hcloud SDK
+- `PortainerClient` ← httpx (HTTP)
+- `CloudflareClient` ← cloudflare SDK
+- `AnsibleRunner` ← ansible-runner + SSHKeyManager
+
+**Storage Layer** (Tier 5):
+- `StorageManager` ← StateStore + SecretsStore (AnsibleVault)
+- `AppRegistry` ← YAML files + PasswordGenerator
+
+**Service Layer** (Tier 4):
+- `ServerSetup` ← AnsibleRunner + AppRegistry
+- `AppDeployer` ← PortainerClient + CloudflareClient + AppRegistry
+- `SSHKeyManager` ← StorageManager (vault)
+
+**Managers** (Tier 3 - PLAN-08 Modular):
+- `ProviderManager` ← StorageManager + HetznerProvider
+- `ServerManager` ← StorageManager + ProviderManager + SSHKeyManager
+- `DeploymentManager` ← StorageManager + AppRegistry + AppDeployer
+- `DNSManager` ← StorageManager + CloudflareClient
+
+**Job System** (Tier 3.5):
+- `JobManager` ← StorageManager + JobLogManager
+- `JobExecutor` ← JobManager + Orchestrator
+
+**Facade** (Tier 2):
+- `Orchestrator (core.py)` ← ALL managers + storage + integrations
+
+**Entry Points** (Tier 1):
+- `FastAPI` ← Orchestrator + JobManager
+- `MCP Server` ← FastAPI (HTTP)
+
+### Key Insights
+1. **Facade Pattern**: Orchestrator delegates to specialized managers
+2. **Dependency Inversion**: Managers depend on abstractions (ProviderInterface)
+3. **Single Source of Truth**: AppRegistry reads YAML, not hardcoded
+4. **Storage Isolation**: Only StorageManager touches disk directly
+5. **Job Decoupling**: JobExecutor calls Orchestrator (not direct managers)
+
+---
+
+## 5. File Structure
 
 ```
 LivChatSetup/
@@ -165,7 +247,7 @@ LivChatSetup/
 
 ---
 
-## 5. Development Practices
+## 6. Development Practices
 
 ### Test-Driven Development
 ```bash
@@ -215,7 +297,7 @@ cd mcp-server && export LIVCHAT_E2E_REAL=true && timeout 30m npm run test:e2e  #
 
 ---
 
-## 6. API & MCP Tools
+## 7. API & MCP Tools
 
 ### FastAPI Endpoints
 ```
@@ -245,7 +327,7 @@ list-jobs               // Job history
 
 ---
 
-## 7. Deployment Workflow
+## 8. Deployment Workflow
 
 ### Standard Flow
 ```bash
@@ -275,7 +357,7 @@ deploy-app(server="prod", app="n8n")
 
 ---
 
-## 8. Key Decisions & Rationale
+## 9. Key Decisions & Rationale
 
 ### Why DNS Mandatory?
 - Apps need domains for Traefik routing
@@ -299,7 +381,7 @@ deploy-app(server="prod", app="n8n")
 
 ---
 
-## 9. Known Limitations
+## 10. Known Limitations
 
 See `TECH-DEBT.md` for complete list:
 - Test coverage < 80% in some modules
@@ -309,7 +391,7 @@ See `TECH-DEBT.md` for complete list:
 
 ---
 
-## 10. Quick Reference
+## 11. Quick Reference
 
 ### Common Tasks
 ```bash
