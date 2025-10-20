@@ -690,11 +690,8 @@ class Orchestrator:
         if result.success:
             logger.info(f"Portainer deployed successfully on {server_name}")
 
-            # Update server state
-            apps = self.storage.state.get_server(server_name).get('applications', [])
-            if 'portainer' not in apps:
-                apps.append('portainer')
-                self.storage.state.update_server(server_name, {'applications': apps})
+            # NOTE: State update removed - infrastructure_executor handles adding "infrastructure" to state
+            # This prevents duplication when portainer is deployed as part of infrastructure bundle
 
             # Automatic Portainer initialization
             logger.info("Initializing Portainer admin account...")

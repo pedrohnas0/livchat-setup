@@ -15,7 +15,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from src.job_manager import JobManager, Job, JobStatus
-from src.orchestrator_old import Orchestrator
+from src.orchestrator import Orchestrator
 from src.storage import StorageManager
 from src.api.server import app
 from src.api.dependencies import reset_orchestrator, reset_job_manager

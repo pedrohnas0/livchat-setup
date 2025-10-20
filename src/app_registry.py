@@ -386,12 +386,13 @@ class AppRegistry:
         # Convert to YAML
         return yaml.dump(compose, default_flow_style=False)
 
-    def list_apps(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_apps(self, category: Optional[str] = None, show_unlisted: bool = False) -> List[Dict[str, Any]]:
         """
         List available applications
 
         Args:
             category: Optional category filter
+            show_unlisted: If True, include apps with listed=false (default: False)
 
         Returns:
             List of app definitions (summary)
@@ -401,6 +402,12 @@ class AppRegistry:
         for name, app in self.apps.items():
             # Filter by category if specified
             if category and app.get("category") != category:
+                continue
+
+            # Filter unlisted apps by default (listed=false in YAML)
+            # Apps without 'listed' field are considered listed (default True)
+            is_listed = app.get("listed", True)
+            if not show_unlisted and not is_listed:
                 continue
 
             # Create summary

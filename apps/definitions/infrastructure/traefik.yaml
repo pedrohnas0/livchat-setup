@@ -3,6 +3,9 @@ category: infrastructure
 version: "v3.4.0"
 description: "Reverse proxy with automatic SSL via Let's Encrypt"
 
+# Hidden from list-apps by default (part of infrastructure bundle)
+listed: false
+
 # Method determines deployment flow
 deploy_method: ansible
 

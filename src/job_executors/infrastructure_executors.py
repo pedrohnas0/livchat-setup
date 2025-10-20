@@ -242,15 +242,26 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
         job.advance_step(3, 3, "Infrastructure bundle deployed successfully")
 
         # Update server state to add "infrastructure" to applications list
-        # This is necessary for validation in app_deployer.py
+        # IMPORTANT: Remove individual components (portainer, traefik) if present
+        # This handles migration from old architecture where components were tracked separately
         server_data = orchestrator.get_server(server_name)
         if server_data:
             apps = server_data.get("applications", [])
+
+            # Remove old component entries (they're now part of the bundle)
+            components_to_remove = ["portainer", "traefik"]
+            for component in components_to_remove:
+                if component in apps:
+                    apps.remove(component)
+                    logger.info(f"Removed '{component}' from applications list (now part of infrastructure bundle)")
+
+            # Add infrastructure bundle if not present
             if "infrastructure" not in apps:
                 apps.append("infrastructure")
-                server_data["applications"] = apps
-                orchestrator.storage.state.update_server(server_name, server_data)
                 logger.info(f"Added 'infrastructure' to {server_name} applications list")
+
+            server_data["applications"] = apps
+            orchestrator.storage.state.update_server(server_name, server_data)
 
         # Final progress
         job.update_progress(100, "Infrastructure deployment completed")

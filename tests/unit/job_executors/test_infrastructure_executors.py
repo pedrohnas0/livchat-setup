@@ -209,3 +209,169 @@ class TestParameterConsistency:
             "E2E direct test must use 'dns_domain' for Portainer"
         assert 'n8n_config["dns_domain"]' in content, \
             "E2E direct test must use 'dns_domain' for N8N"
+
+
+class TestInfrastructureBundleStateManagement:
+    """Test that infrastructure bundle only adds 'infrastructure' to state, not components"""
+
+    @pytest.mark.asyncio
+    async def test_infrastructure_bundle_only_adds_bundle_to_state(self):
+        """
+        When deploying infrastructure bundle, only 'infrastructure' should be added to state.
+        NOT 'traefik' and 'portainer' individually (Option 3: Hybrid approach)
+        """
+        # Arrange
+        mock_orchestrator = MagicMock()
+        mock_server = {
+            "name": "test-server",
+            "ip": "1.2.3.4",
+            "applications": []
+        }
+
+        # Mock get_server to return our test server
+        mock_orchestrator.get_server = MagicMock(return_value=mock_server)
+
+        # Mock deploy_traefik and deploy_portainer to succeed
+        mock_orchestrator.deploy_traefik = MagicMock(return_value=True)
+        mock_orchestrator.deploy_portainer = MagicMock(return_value=True)
+
+        # Mock storage to track state changes
+        mock_orchestrator.storage = MagicMock()
+        mock_orchestrator.storage.state = MagicMock()
+
+        job = Job(
+            job_id="test-infrastructure-bundle",
+            job_type="deploy_infrastructure",
+            params={
+                "app_name": "infrastructure",
+                "server_name": "test-server",
+                "environment": {},
+                "domain": None
+            }
+        )
+
+        # Act
+        with patch('asyncio.to_thread', new_callable=AsyncMock) as mock_to_thread:
+            # Simulate successful deployment
+            mock_to_thread.return_value = True
+            result = await execute_deploy_infrastructure(job, mock_orchestrator)
+
+        # Assert
+        assert result["success"] is True
+
+        # CRITICAL ASSERTION: State should ONLY contain "infrastructure"
+        # NOT ["traefik", "portainer", "infrastructure"] (the old buggy behavior)
+        apps_in_state = mock_server["applications"]
+
+        assert "infrastructure" in apps_in_state, "infrastructure should be in state"
+        assert "traefik" not in apps_in_state, "traefik should NOT be in state (part of bundle)"
+        assert "portainer" not in apps_in_state, "portainer should NOT be in state (part of bundle)"
+        assert len(apps_in_state) == 1, f"Should have exactly 1 app in state, got {len(apps_in_state)}: {apps_in_state}"
+
+    @pytest.mark.asyncio
+    async def test_infrastructure_bundle_cleans_old_component_entries(self):
+        """
+        When deploying infrastructure bundle on a server with old component entries,
+        it should REMOVE 'portainer' and 'traefik' and replace with 'infrastructure'
+        (Migration from old architecture)
+        """
+        # Arrange
+        mock_orchestrator = MagicMock()
+        mock_server = {
+            "name": "test-server",
+            "ip": "1.2.3.4",
+            "applications": ["portainer", "traefik"]  # OLD state from previous test
+        }
+
+        mock_orchestrator.get_server = MagicMock(return_value=mock_server)
+        mock_orchestrator.deploy_traefik = MagicMock(return_value=True)
+        mock_orchestrator.deploy_portainer = MagicMock(return_value=True)
+        mock_orchestrator.storage = MagicMock()
+        mock_orchestrator.storage.state = MagicMock()
+
+        job = Job(
+            job_id="test-migration",
+            job_type="deploy_infrastructure",
+            params={
+                "app_name": "infrastructure",
+                "server_name": "test-server",
+                "environment": {},
+                "domain": None
+            }
+        )
+
+        # Act
+        with patch('asyncio.to_thread', new_callable=AsyncMock) as mock_to_thread:
+            mock_to_thread.return_value = True
+            result = await execute_deploy_infrastructure(job, mock_orchestrator)
+
+        # Assert
+        assert result["success"] is True
+
+        # MIGRATION ASSERTION: Old components should be removed
+        apps_in_state = mock_server["applications"]
+
+        assert "infrastructure" in apps_in_state, "infrastructure should be added"
+        assert "traefik" not in apps_in_state, "traefik should be REMOVED (now part of bundle)"
+        assert "portainer" not in apps_in_state, "portainer should be REMOVED (now part of bundle)"
+        assert len(apps_in_state) == 1, f"Should have exactly 1 app after cleanup, got {len(apps_in_state)}: {apps_in_state}"
+
+    @pytest.mark.asyncio
+    async def test_infrastructure_components_not_added_individually(self):
+        """
+        Verify that deploy_traefik and deploy_portainer do NOT add themselves to state
+        when called as part of infrastructure bundle deployment
+        """
+        # Arrange
+        mock_orchestrator = MagicMock()
+        mock_server = {
+            "name": "test-server",
+            "ip": "1.2.3.4",
+            "applications": []
+        }
+
+        mock_orchestrator.get_server = MagicMock(return_value=mock_server)
+
+        # Track calls to storage.state.update_server
+        update_calls = []
+
+        def track_update(server_name, server_data):
+            update_calls.append({
+                "server_name": server_name,
+                "applications": server_data.get("applications", []).copy()
+            })
+
+        mock_orchestrator.storage = MagicMock()
+        mock_orchestrator.storage.state = MagicMock()
+        mock_orchestrator.storage.state.update_server = MagicMock(side_effect=track_update)
+
+        # Mock deploy methods
+        mock_orchestrator.deploy_traefik = MagicMock(return_value=True)
+        mock_orchestrator.deploy_portainer = MagicMock(return_value=True)
+
+        job = Job(
+            job_id="test-component-isolation",
+            job_type="deploy_infrastructure",
+            params={
+                "app_name": "infrastructure",
+                "server_name": "test-server",
+                "environment": {},
+                "domain": None
+            }
+        )
+
+        # Act
+        with patch('asyncio.to_thread', new_callable=AsyncMock) as mock_to_thread:
+            mock_to_thread.return_value = True
+            result = await execute_deploy_infrastructure(job, mock_orchestrator)
+
+        # Assert
+        assert result["success"] is True
+
+        # In the FIXED version, there should be NO calls that add "traefik" or "portainer" individually
+        for call in update_calls:
+            apps = call["applications"]
+            if "traefik" in apps and "infrastructure" in apps:
+                pytest.fail(f"BUG: Both 'traefik' and 'infrastructure' found in same update: {apps}")
+            if "portainer" in apps and "infrastructure" in apps:
+                pytest.fail(f"BUG: Both 'portainer' and 'infrastructure' found in same update: {apps}")

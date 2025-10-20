@@ -517,3 +517,115 @@ compose_template: |
         assert "networks" in compose_data
         assert "livchat_network" in compose_data["networks"]
         assert compose_data["networks"]["livchat_network"]["external"] is True
+
+    def test_list_apps_filters_unlisted_by_default(self, app_registry, tmp_path):
+        """Test that unlisted apps are filtered by default"""
+        # Create apps with different listed values
+        infrastructure_yaml = """
+name: infrastructure
+category: infrastructure
+version: "1.0.0"
+description: Essential infrastructure bundle
+"""
+        traefik_yaml = """
+name: traefik
+category: infrastructure
+version: "v3.4.0"
+description: Reverse proxy
+listed: false
+"""
+        portainer_yaml = """
+name: portainer
+category: infrastructure
+version: "2.19.4"
+description: Container management
+listed: false
+"""
+        n8n_yaml = """
+name: n8n
+category: automation
+version: "1.25.0"
+description: Workflow automation
+"""
+        postgres_yaml = """
+name: postgres
+category: database
+version: "14"
+description: PostgreSQL database
+"""
+
+        # Create temp files
+        apps_dir = tmp_path / "apps"
+        apps_dir.mkdir()
+        (apps_dir / "infrastructure.yaml").write_text(infrastructure_yaml)
+        (apps_dir / "traefik.yaml").write_text(traefik_yaml)
+        (apps_dir / "portainer.yaml").write_text(portainer_yaml)
+        (apps_dir / "n8n.yaml").write_text(n8n_yaml)
+        (apps_dir / "postgres.yaml").write_text(postgres_yaml)
+
+        # Load definitions
+        app_registry.load_definitions(str(apps_dir))
+
+        # Default behavior: should NOT include unlisted apps (traefik/portainer)
+        apps = app_registry.list_apps()
+        app_names = [app['name'] for app in apps]
+
+        # Verify listed apps are present
+        assert 'infrastructure' in app_names
+        assert 'n8n' in app_names
+        assert 'postgres' in app_names
+
+        # Verify unlisted apps are filtered out
+        assert 'traefik' not in app_names
+        assert 'portainer' not in app_names
+
+    def test_list_apps_shows_unlisted_when_requested(self, app_registry, tmp_path):
+        """Test that unlisted apps appear with show_unlisted=True"""
+        # Create apps with different listed values
+        infrastructure_yaml = """
+name: infrastructure
+category: infrastructure
+version: "1.0.0"
+description: Essential infrastructure bundle
+"""
+        traefik_yaml = """
+name: traefik
+category: infrastructure
+version: "v3.4.0"
+description: Reverse proxy
+listed: false
+"""
+        portainer_yaml = """
+name: portainer
+category: infrastructure
+version: "2.19.4"
+description: Container management
+listed: false
+"""
+        n8n_yaml = """
+name: n8n
+category: automation
+version: "1.25.0"
+description: Workflow automation
+"""
+
+        # Create temp files
+        apps_dir = tmp_path / "apps"
+        apps_dir.mkdir()
+        (apps_dir / "infrastructure.yaml").write_text(infrastructure_yaml)
+        (apps_dir / "traefik.yaml").write_text(traefik_yaml)
+        (apps_dir / "portainer.yaml").write_text(portainer_yaml)
+        (apps_dir / "n8n.yaml").write_text(n8n_yaml)
+
+        # Load definitions
+        app_registry.load_definitions(str(apps_dir))
+
+        # With show_unlisted: should include ALL apps
+        apps = app_registry.list_apps(show_unlisted=True)
+        app_names = [app['name'] for app in apps]
+
+        # Verify all apps are present (including unlisted)
+        assert 'infrastructure' in app_names
+        assert 'traefik' in app_names
+        assert 'portainer' in app_names
+        assert 'n8n' in app_names

@@ -3,6 +3,9 @@ category: infrastructure
 version: "2.19.4"
 description: "Container management platform for Docker/Swarm"
 
+# Hidden from list-apps by default (part of infrastructure bundle)
+listed: false
+
 # Method determines deployment flow
 deploy_method: ansible
 
