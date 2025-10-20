@@ -295,6 +295,23 @@ cd mcp-server && export LIVCHAT_E2E_REAL=true && timeout 30m npm run test:e2e  #
 - Single responsibility
 - See TECH-DEBT.md for known violations
 
+### 🚫 NO Version Numbers in Code (CRITICAL RULE)
+**NEVER add version numbers (v0.X.X) to code comments or MCP strings!**
+
+**Why:** Instantly outdated, creates maintenance debt.
+
+**❌ BAD:**
+```python
+# v0.2.0: DNS now required
+```
+
+**✅ GOOD:**
+```python
+# DNS now required
+```
+
+**Exception:** Only `__version__` in `__init__.py`
+
 ---
 
 ## 7. API & MCP Tools

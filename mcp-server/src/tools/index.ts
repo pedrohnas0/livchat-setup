@@ -1,5 +1,5 @@
 /**
- * Tool Registry - Central export for all 13 MCP tools (config.yaml REMOVED in v0.2.5)
+ * Tool Registry - Central export for all 13 MCP tools
  */
 
 // Export all tool classes
@@ -10,7 +10,7 @@ export {
   CreateServerInputSchema,
   ListServersTool,
   ListServersInputSchema,
-  UpdateServerDNSTool,  // v0.2.0: replaces ConfigureServerDNSTool
+  UpdateServerDNSTool,
   UpdateServerDNSInputSchema,
   SetupServerTool,
   SetupServerInputSchema,
@@ -40,7 +40,7 @@ export type { GetProviderInfoInput } from './providers.js';
 export type {
   CreateServerInput,
   ListServersInput,
-  UpdateServerDNSInput,  // v0.2.0: replaces ConfigureServerDNSInput
+  UpdateServerDNSInput,
   SetupServerInput,
   DeleteServerInput,
 } from './servers.js';

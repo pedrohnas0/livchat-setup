@@ -134,7 +134,7 @@ def _sync_servers_with_provider(orchestrator: Orchestrator) -> None:
     """
     try:
         # Try to initialize provider (lazy load from vault)
-        # v0.2.0: No config.yaml - detect provider from available tokens
+        # Detect provider from available tokens
         if not orchestrator.provider:
             # Try Hetzner first (primary provider)
             token = orchestrator.storage.secrets.get_secret("hetzner_token")
@@ -290,7 +290,7 @@ async def get_server(
 
         if server_id:
             # Initialize provider if needed (lazy load from vault)
-            # v0.2.0: No config.yaml - detect provider from available tokens
+            # Detect provider from available tokens
             if not orchestrator.provider:
                 # Try Hetzner first (primary provider)
                 token = orchestrator.storage.secrets.get_secret("hetzner_token")
@@ -407,17 +407,17 @@ async def delete_server(
 @router.post("/{name}/setup", response_model=ServerSetupResponse, status_code=status.HTTP_202_ACCEPTED)
 async def setup_server(
     name: str,
-    request: ServerSetupRequest,  # v0.2.0: Now REQUIRED (DNS mandatory)
+    request: ServerSetupRequest,
     job_manager: JobManager = Depends(get_job_manager),
     orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """
-    Setup server with infrastructure (async operation) - v0.2.0
+    Setup server with infrastructure (async operation)
 
     Creates a job for server setup and returns immediately.
     Use the job_id to track progress.
 
-    v0.2.0 Changes:
+    Changes:
     - DNS configuration (zone_name) is now REQUIRED
     - Traefik and Portainer are NO LONGER deployed during setup
     - They must be deployed separately as "infrastructure" app
@@ -446,11 +446,11 @@ async def setup_server(
             detail=f"Server {name} not found"
         )
 
-    # v0.2.0: Validate zone_name is provided
+    # Validate zone_name is provided
     if not request.zone_name:
         raise HTTPException(
             status_code=400,
-            detail="zone_name is required for server setup (v0.2.0)"
+            detail="zone_name is required for server setup"
         )
 
     try:
@@ -459,8 +459,8 @@ async def setup_server(
             job_type="setup_server",
             params={
                 "server_name": name,
-                "zone_name": request.zone_name,  # v0.2.0: DNS required
-                "subdomain": request.subdomain,  # v0.2.0: Optional subdomain
+                "zone_name": request.zone_name,
+                "subdomain": request.subdomain,
                 "ssl_email": request.ssl_email,
                 "network_name": request.network_name,
                 "timezone": request.timezone
@@ -489,7 +489,7 @@ async def update_server_dns(
     orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """
-    Update DNS configuration for a server (v0.2.0)
+    Update DNS configuration for a server
 
     Updates the DNS zone and optional subdomain for an existing server.
     Use this if you need to change the zone or subdomain after setup.
@@ -527,7 +527,7 @@ async def update_server_dns(
         if request.subdomain:
             dns_config_dict["subdomain"] = request.subdomain
 
-        # Update server with DNS config (v0.2.0: using dns_config, not dns_info)
+        # Update server with DNS config
         server_data["dns_config"] = dns_config_dict
         orchestrator.storage.state.update_server(name, server_data)
 
@@ -555,12 +555,12 @@ async def configure_server_dns(
     orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """
-    [DEPRECATED v0.2.0] Configure DNS for a server
+    [DEPRECATED] Configure DNS for a server
 
     ⚠️ DEPRECATED: Use PUT /{name}/dns instead.
-    This endpoint is kept for backward compatibility but will be removed in v0.3.0.
+    This endpoint is kept for backward compatibility.
 
-    In v0.2.0, DNS is configured automatically during setup.
+    DNS is configured automatically during setup.
     Use this endpoint only if you need to update DNS after setup.
 
     Associates a DNS zone and optional subdomain with the server.
@@ -598,7 +598,7 @@ async def configure_server_dns(
         if request.subdomain:
             dns_config_dict["subdomain"] = request.subdomain
 
-        # Update server with DNS config (v0.2.0: using dns_config for consistency)
+        # Update server with DNS config
         server_data["dns_config"] = dns_config_dict
         orchestrator.storage.state.update_server(name, server_data)
 
@@ -646,7 +646,7 @@ async def get_server_dns(
             detail=f"Server {name} not found"
         )
 
-    # Check if DNS is configured (v0.2.0: using dns_config)
+    # Check if DNS is configured
     dns_config_dict = server_data.get("dns_config")
     if not dns_config_dict:
         raise HTTPException(

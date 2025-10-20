@@ -46,7 +46,7 @@ class AppDeployer:
         logger.info(f"Deploying {app_name} to server {server['name']}")
 
         try:
-            # v0.2.0: Validation 1 - DNS must be configured
+            # Validation 1 - DNS must be configured
             dns_config = server.get("dns_config", {})
             if not dns_config.get("zone_name"):
                 return {
@@ -58,7 +58,7 @@ class AppDeployer:
 
             logger.info(f"DNS validation passed for {server['name']}: {dns_config}")
 
-            # v0.2.0: Validation 2 - infrastructure must be deployed (except if deploying it itself)
+            # Validation 2 - infrastructure must be deployed (except if deploying it itself)
             if app_name != "infrastructure":
                 apps = server.get("applications", [])
                 if "infrastructure" not in apps:
@@ -225,7 +225,7 @@ class AppDeployer:
         logger.info(f"Configuring DNS for {app_name} on {domain}")
 
         try:
-            # Get DNS config from server (v0.2.0)
+            # Get DNS config from server
             dns_config = server.get("dns_config", {})
             zone = dns_config.get("zone_name", domain)
             subdomain = dns_config.get("subdomain")

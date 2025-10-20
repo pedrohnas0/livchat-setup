@@ -10,7 +10,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { APIClient } from "./api-client.js";
 import {
-  // Secrets (config.yaml REMOVED in v0.2.5)
+  // Secrets
   ManageSecretsTool,
   ManageSecretsInputSchema,
   // Providers
@@ -21,7 +21,7 @@ import {
   CreateServerInputSchema,
   ListServersTool,
   ListServersInputSchema,
-  UpdateServerDNSTool,  // v0.2.0: replaces ConfigureServerDNSTool
+  UpdateServerDNSTool,
   UpdateServerDNSInputSchema,
   SetupServerTool,
   SetupServerInputSchema,
@@ -53,19 +53,19 @@ const apiClient = new APIClient(API_URL, API_KEY);
 // Create MCP server instance
 const server = new McpServer({
   name: "livchat-setup",
-  version: "0.2.0",  // v0.2.0: DNS-first architecture
+  version: "0.2.0",
 });
 
 // Initialize all tool handlers
 const tools = {
-  // Secrets (1 tool - config.yaml REMOVED in v0.2.5)
+  // Secrets (1 tool)
   manageSecrets: new ManageSecretsTool(apiClient),
   // Providers (1 tool)
   getProviderInfo: new GetProviderInfoTool(apiClient),
   // Servers (5 tools)
   createServer: new CreateServerTool(apiClient),
   listServers: new ListServersTool(apiClient),
-  updateServerDns: new UpdateServerDNSTool(apiClient),  // v0.2.0: replaces configureServerDns
+  updateServerDns: new UpdateServerDNSTool(apiClient),
   setupServer: new SetupServerTool(apiClient),
   deleteServer: new DeleteServerTool(apiClient),
   // Apps (4 tools)
@@ -78,7 +78,7 @@ const tools = {
   listJobs: new ListJobsTool(apiClient),
 };
 
-// Register all 13 tools with MCP server (manage-config REMOVED in v0.2.5)
+// Register all 13 tools with MCP server
 server.tool(
   "manage-secrets",
   "Gerencia credenciais criptografadas (tokens, passwords, SSH keys). Configure hetzner_token aqui antes de criar servidores.",
@@ -179,7 +179,7 @@ async function main() {
   await server.connect(transport);
 
   // Log to stderr (stdout is reserved for MCP protocol)
-  console.error("LivChatSetup MCP Server v0.2.0 (DNS-first architecture)");
+  console.error("LivChatSetup MCP Server");
   console.error(`API URL: ${API_URL}`);
   console.error(`API Key: ${API_KEY ? "***" + API_KEY.slice(-4) : "not set"}`);
   console.error("Server ready on stdio");

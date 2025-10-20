@@ -67,15 +67,15 @@ async def execute_create_server(job: Job, orchestrator: Orchestrator) -> Dict[st
 
 async def execute_setup_server(job: Job, orchestrator: Orchestrator) -> Dict[str, Any]:
     """
-    Execute server setup job with step-based progress tracking (v0.2.0: DNS required)
+    Execute server setup job with step-based progress tracking (DNS required)
 
-    Setup process has 4 main steps (v0.2.0 - simplified):
+    Setup process has 4 main steps (simplified):
     1. Starting setup
     2. Base system setup (apt update, timezone, etc)
     3. Installing Docker and initializing Swarm
     4. Finalizing setup
 
-    v0.2.0 Changes:
+    Changes:
     - zone_name is now REQUIRED (not optional)
     - Traefik and Portainer are NO LONGER deployed during setup
     - They must be deployed separately as "infrastructure" app
@@ -98,7 +98,7 @@ async def execute_setup_server(job: Job, orchestrator: Orchestrator) -> Dict[str
     params = job.params
     server_name = params.get("server_name")
 
-    # v0.2.0: DNS configuration (zone_name required, subdomain optional)
+    # DNS configuration (zone_name required, subdomain optional)
     zone_name = params.get("zone_name")
     subdomain = params.get("subdomain")
 
@@ -107,24 +107,24 @@ async def execute_setup_server(job: Job, orchestrator: Orchestrator) -> Dict[str
     network_name = params.get("network_name", "livchat_network")
     timezone = params.get("timezone", "America/Sao_Paulo")
 
-    # Validate required params (v0.2.0)
+    # Validate required params
     if not zone_name:
-        raise ValueError("zone_name is required for server setup (v0.2.0)")
+        raise ValueError("zone_name is required for server setup")
 
     # Step 1: Starting setup (shows Etapa 1/4)
     dns_info = f" with DNS {zone_name}" + (f"/{subdomain}" if subdomain else "")
     job.advance_step(1, 4, f"Starting setup for {server_name}{dns_info}")
 
     # Setup server via orchestrator
-    # NOTE: setup_server is SYNC (runs Ansible for 3-5min in v0.2.0)
+    # NOTE: setup_server is SYNC (runs Ansible for 3-5min)
     # Must run in executor to avoid blocking event loop
     # During this execution, time-based progress will slowly increment
     loop = asyncio.get_event_loop()
     setup_func = functools.partial(
         orchestrator.setup_server,
         server_name=server_name,
-        zone_name=zone_name,  # v0.2.0: Required parameter
-        subdomain=subdomain,  # v0.2.0: Optional parameter
+        zone_name=zone_name,  # Required parameter
+        subdomain=subdomain,  # Optional parameter
         config={
             "ssl_email": ssl_email,
             "network_name": network_name,

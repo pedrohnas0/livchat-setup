@@ -1,10 +1,10 @@
 /**
- * Tools: Server Management (5 tools) - v0.2.0
+ * Tools: Server Management (5 tools)
  *
  * 1. create-server (async)
  * 2. list-servers
- * 3. update-server-dns (v0.2.0: replaces configure-server-dns)
- * 4. setup-server (async) - v0.2.0: DNS now required
+ * 3. update-server-dns
+ * 4. setup-server (async) - DNS required
  * 5. delete-server (async)
  */
 
@@ -50,7 +50,7 @@ export const ListServersInputSchema = z.object({
 export type ListServersInput = z.infer<typeof ListServersInputSchema>;
 
 /**
- * Schema for update-server-dns tool (v0.2.0: replaces configure-server-dns)
+ * Schema for update-server-dns tool
  */
 export const UpdateServerDNSInputSchema = z.object({
   server_name: z.string()
@@ -65,13 +65,13 @@ export const UpdateServerDNSInputSchema = z.object({
 export type UpdateServerDNSInput = z.infer<typeof UpdateServerDNSInputSchema>;
 
 /**
- * Schema for setup-server tool (v0.2.0: DNS now required)
+ * Schema for setup-server tool (DNS required)
  */
 export const SetupServerInputSchema = z.object({
   server_name: z.string()
     .describe('Nome do servidor a configurar'),
 
-  // v0.2.0: DNS configuration is now REQUIRED
+  // DNS configuration is REQUIRED
   zone_name: z.string()
     .min(3)
     .describe('Domínio principal registrado no Cloudflare (OBRIGATÓRIO - ex: livchat.ai)'),
@@ -241,7 +241,7 @@ export class ListServersTool {
 }
 
 /**
- * Tool: update-server-dns (v0.2.0: replaces configure-server-dns)
+ * Tool: update-server-dns
  */
 export class UpdateServerDNSTool {
   constructor(private client: APIClient) {}
@@ -253,7 +253,7 @@ export class UpdateServerDNSTool {
         subdomain: input.subdomain,
       });
 
-      let output = '✅ Configuração DNS atualizada (v0.2.0)\n\n';
+      let output = '✅ Configuração DNS atualizada\n\n';
       output += `📦 Servidor: ${input.server_name}\n`;
       output += `🌐 Zone: ${input.zone_name}\n`;
 
@@ -277,7 +277,7 @@ export class UpdateServerDNSTool {
 }
 
 /**
- * Tool: setup-server (ASYNC) - v0.2.0
+ * Tool: setup-server (ASYNC)
  */
 export class SetupServerTool {
   constructor(private client: APIClient) {}
@@ -287,8 +287,8 @@ export class SetupServerTool {
       const response = await this.client.post<{ job_id: string }>(
         `/servers/${input.server_name}/setup`,
         {
-          zone_name: input.zone_name,        // v0.2.0: DNS required
-          subdomain: input.subdomain,        // v0.2.0: Optional subdomain
+          zone_name: input.zone_name,
+          subdomain: input.subdomain,
           ssl_email: input.ssl_email,
           network_name: input.network_name,
           timezone: input.timezone,
@@ -302,7 +302,7 @@ export class SetupServerTool {
       if (input.subdomain) {
         output += `🏷️  Subdomain: ${input.subdomain}\n`;
       }
-      output += '\n🔧 Etapas do setup (v0.2.0):\n';
+      output += '\n🔧 Etapas do setup:\n';
       output += '   1️⃣  Atualização do sistema e timezone\n';
       output += '   2️⃣  Instalação do Docker\n';
       output += '   3️⃣  Inicialização do Swarm + rede overlay\n';

@@ -16,7 +16,7 @@ from .storage import StorageManager, StateStore, SecretsStore
 LivChatSetup = Orchestrator
 
 # Version info
-__version__ = "0.2.5"  # v0.2.5: Removed ConfigStore, settings in state.json
+__version__ = "0.2.5"
 
 # Public exports
 __all__ = [

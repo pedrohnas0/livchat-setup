@@ -388,7 +388,7 @@ class Orchestrator:
                     subdomain: Optional[str] = None,
                     config: Optional[Dict] = None) -> Dict[str, Any]:
         """
-        Run complete server setup with mandatory DNS configuration (v0.2.0)
+        Run complete server setup with mandatory DNS configuration
 
         Args:
             server_name: Name of the server
@@ -408,7 +408,7 @@ class Orchestrator:
 
         logger.info(f"Starting setup for server {server_name} with DNS: {zone_name}")
 
-        # v0.2.0: Validate Cloudflare credentials BEFORE setup
+        # Validate Cloudflare credentials BEFORE setup
         cf_email = self.storage.secrets.get_secret("cloudflare_email")
         cf_api_key = self.storage.secrets.get_secret("cloudflare_api_key")
         if not cf_email or not cf_api_key:
@@ -419,7 +419,7 @@ class Orchestrator:
 
         logger.info(f"Cloudflare credentials validated for {server_name}")
 
-        # v0.2.0: Save DNS config to state BEFORE setup
+        # Save DNS config to state BEFORE setup
         dns_config = {"zone_name": zone_name}
         if subdomain:
             dns_config["subdomain"] = subdomain

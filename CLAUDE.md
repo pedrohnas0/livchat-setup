@@ -817,6 +817,27 @@ config = {
   pip install -r requirements.txt
   ```
 
+### 🚫 NO Version Numbers in Code Comments (CRITICAL RULE)
+**NEVER add version numbers (v0.X.X, X.X.X) to code comments or MCP context strings!**
+
+**Why:** Version references become outdated immediately and create maintenance debt.
+
+**❌ BAD Examples:**
+```python
+# v0.2.0: DNS configuration now required
+# Setup server (v0.2.5 changes)
+"""Deploy infrastructure (v0.3.0)"""
+```
+
+**✅ GOOD Examples:**
+```python
+# DNS configuration now required
+# Setup server
+"""Deploy infrastructure"""
+```
+
+**Exception:** Only `__version__ = "X.Y.Z"` in `__init__.py` (single source of truth)
+
 ### Test-Driven Development (TDD)
 - **Escrever testes ANTES da implementação** quando possível
 - **Mínimo 80% de cobertura** para código crítico (storage, orchestrator)

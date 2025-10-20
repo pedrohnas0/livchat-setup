@@ -70,7 +70,7 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
         if domain:
             config["dns_domain"] = domain  # Use explicit domain if provided
         else:
-            # Build domain from server's dns_config (v0.2.0)
+            # Build domain from server's dns_config
             dns_config = server_data.get("dns_config", {})
             zone_name = dns_config.get("zone_name")
             subdomain = dns_config.get("subdomain")
@@ -159,7 +159,7 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
         }
 
     elif app_name == "infrastructure":
-        # Deploy infrastructure bundle (Traefik + Portainer) - v0.2.0
+        # Deploy infrastructure bundle (Traefik + Portainer)
         logger.info(f"Deploying infrastructure bundle (Traefik + Portainer) on {server_name}")
 
         # Step 1/3: Deploy Traefik
@@ -204,7 +204,7 @@ async def execute_deploy_infrastructure(job: Job, orchestrator: Orchestrator) ->
         if domain:
             portainer_config["dns_domain"] = domain
         else:
-            # Build domain from server's dns_config (v0.2.0)
+            # Build domain from server's dns_config
             dns_config = server_data.get("dns_config", {})
             zone_name = dns_config.get("zone_name")
             subdomain = dns_config.get("subdomain")

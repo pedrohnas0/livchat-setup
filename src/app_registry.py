@@ -27,7 +27,7 @@ class AppDefinition:
     health_check: Dict[str, Any] = field(default_factory=dict)
     dns_prefix: Optional[str] = None
     additional_dns: List[Dict[str, str]] = field(default_factory=list)
-    # v0.2.0: Bundle support
+    # Bundle support
     required_by_all_apps: bool = False  # If True, this app is required for all other apps
     components: List[str] = field(default_factory=list)  # List of apps in bundle (e.g., ['traefik', 'portainer'])
 
@@ -39,7 +39,7 @@ class AppDefinition:
             "name", "category", "version", "description",
             "ports", "volumes", "environment", "dependencies",
             "deploy", "health_check", "dns_prefix", "additional_dns",
-            "required_by_all_apps", "components"  # v0.2.0: Bundle support
+            "required_by_all_apps", "components"  # Bundle support
         }
         filtered_data = {k: v for k, v in data.items() if k in known_fields}
         return cls(**filtered_data)
@@ -59,8 +59,8 @@ class AppDefinition:
             "health_check": self.health_check,
             "dns_prefix": self.dns_prefix,
             "additional_dns": self.additional_dns,
-            "required_by_all_apps": self.required_by_all_apps,  # v0.2.0
-            "components": self.components  # v0.2.0
+            "required_by_all_apps": self.required_by_all_apps,
+            "components": self.components
         }
 
 
@@ -485,7 +485,7 @@ class AppRegistry:
 
     def is_required_by_all(self, app_name: str) -> bool:
         """
-        Check if app is required by all other apps (v0.2.0)
+        Check if app is required by all other apps
 
         Args:
             app_name: Application name

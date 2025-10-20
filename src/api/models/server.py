@@ -30,13 +30,13 @@ class ServerCreateRequest(BaseModel):
 
 
 class ServerSetupRequest(BaseModel):
-    """Request to setup a server (v0.2.0: DNS now required)"""
+    """Request to setup a server (DNS now required)"""
     # Infrastructure configuration
     ssl_email: str = Field("admin@example.com", description="Email for Let's Encrypt SSL certificates")
     network_name: str = Field("livchat_network", description="Docker Swarm overlay network name")
     timezone: str = Field("America/Sao_Paulo", description="Server timezone")
 
-    # DNS configuration (v0.2.0: REQUIRED)
+    # DNS configuration (REQUIRED)
     zone_name: str = Field(..., min_length=3, description="DNS zone/domain registered in Cloudflare (REQUIRED)")
     subdomain: Optional[str] = Field(None, description="Subdomain prefix (optional, ex: 'lab', 'dev', 'prod')")
 

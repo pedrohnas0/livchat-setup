@@ -701,7 +701,7 @@ class ServerSetup:
             )
 
         # Define setup steps in order
-        # v0.2.0: Traefik and Portainer are NO LONGER deployed during setup
+        # Traefik and Portainer are NO LONGER deployed during setup
         # They must be deployed separately as "infrastructure" app
         steps = [
             ("base-setup", lambda: self.setup_base(server)),

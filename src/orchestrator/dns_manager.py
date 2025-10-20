@@ -75,7 +75,7 @@ class DNSManager:
             )
 
             if result["success"]:
-                # Save DNS config to state (only zone and subdomain) - v0.2.0
+                # Save DNS config to state (only zone and subdomain)
                 dns_config = {
                     "zone_name": zone_name,
                     "subdomain": subdomain
