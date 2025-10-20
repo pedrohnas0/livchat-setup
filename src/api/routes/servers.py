@@ -133,28 +133,15 @@ def _sync_servers_with_provider(orchestrator: Orchestrator) -> None:
     Gracefully degrades if provider unavailable (no token, network error, etc.)
     """
     try:
-        # Try to initialize provider (lazy load from vault)
-        # Detect provider from available tokens
-        if not orchestrator.provider:
-            # Try Hetzner first (primary provider)
-            token = orchestrator.storage.secrets.get_secret("hetzner_token")
+        # Get provider (auto-initializes from vault if needed)
+        provider = orchestrator.provider_manager.get_provider()
 
-            if token:
-                from src.providers.hetzner import HetznerProvider
-                orchestrator.provider = HetznerProvider(token)
-                logger.debug("Hetzner provider initialized for sync")
-            else:
-                # Try DigitalOcean as fallback
-                token = orchestrator.storage.secrets.get_secret("digitalocean_token")
-                if token:
-                    logger.warning("DigitalOcean provider not yet implemented - skipping sync")
-                    return
-                else:
-                    logger.debug("No provider token available - skipping sync")
-                    return
+        if not provider:
+            logger.debug("No provider available - skipping sync")
+            return
 
         # Fetch servers from provider
-        provider_servers = orchestrator.provider.list_servers()
+        provider_servers = provider.list_servers()
         logger.info(f"Found {len(provider_servers)} servers in provider")
 
         # Get current state
