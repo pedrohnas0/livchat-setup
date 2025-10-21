@@ -111,6 +111,46 @@ export class ErrorHandler {
    * Format generic Error
    */
   private static formatGenericError(error: Error): FormattedError {
+    // Check if it's a Hetzner token missing error
+    if (error.message.includes('hetzner_token') ||
+        error.message.includes('HETZNER_TOKEN') ||
+        (error.message.toLowerCase().includes('hetzner') &&
+         error.message.toLowerCase().includes('not found'))) {
+      return {
+        type: 'validation_error',
+        message: error.message,
+        aiContext: 'Hetzner API token is required to create and manage servers.',
+        suggestions: [
+          'Get your API token from Hetzner Cloud Console: https://console.hetzner.com/',
+          'Navigate to: Your Project → Security → API Tokens',
+          'Click "Generate API Token" and copy it',
+          'Configure it using manage-secrets tool with action: "set", key: "hetzner_token", value: "<your-token>"',
+          'Don\'t have an account? Sign up with €20 free credit: https://hetzner.cloud/?ref=L1v1w0nTsQKj',
+          'Your token will be encrypted with Ansible Vault for security',
+        ],
+      };
+    }
+
+    // Check if it's a Cloudflare credentials missing error
+    if (error.message.toLowerCase().includes('cloudflare') &&
+        (error.message.toLowerCase().includes('not found') ||
+         error.message.toLowerCase().includes('required') ||
+         error.message.toLowerCase().includes('not configured'))) {
+      return {
+        type: 'validation_error',
+        message: error.message,
+        aiContext: 'Cloudflare credentials are required for DNS management during server setup.',
+        suggestions: [
+          'Get your API credentials from Cloudflare Dashboard: https://dash.cloudflare.com/profile/api-tokens',
+          'You need TWO values: Global API Key + Account Email',
+          'Configure them using manage-secrets tool:',
+          '  1. action: "set", key: "cloudflare_api_key", value: "<your-global-api-key>"',
+          '  2. action: "set", key: "cloudflare_email", value: "<your-account-email>"',
+          'Don\'t have a Cloudflare account? Sign up free at: https://dash.cloudflare.com/sign-up',
+        ],
+      };
+    }
+
     // Check if it's a network error
     if (error.message.includes('Network error') ||
         error.message.includes('ECONNREFUSED') ||

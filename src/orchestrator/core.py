@@ -4,6 +4,7 @@ Core Orchestrator - Facade pattern for all orchestration operations
 This is the main entry point that coordinates all managers (PLAN-08 refactoring)
 """
 import logging
+import asyncio
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -459,3 +460,119 @@ class Orchestrator:
             "details": result.details,
             "dns_config": dns_config
         }
+
+    async def execute_remote_command(
+        self,
+        server_name: str,
+        command: str,
+        timeout: int = 30,
+        working_dir: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute SSH command on remote server
+
+        Args:
+            server_name: Name of server to run command on
+            command: Command to execute
+            timeout: Timeout in seconds (default: 30s, max: 300s)
+            working_dir: Optional working directory for command execution
+
+        Returns:
+            Dict with stdout, stderr, exit_code, success
+
+        Raises:
+            ValueError: If server not found or command is dangerous
+            FileNotFoundError: If SSH key not found
+            asyncio.TimeoutError: If command times out
+            OSError: If SSH connection fails
+
+        Examples:
+            >>> result = await orch.execute_remote_command(
+            ...     server_name="prod-server",
+            ...     command="docker ps -a",
+            ...     timeout=30
+            ... )
+            >>> print(result["stdout"])
+        """
+        import asyncssh
+        from ..security import is_dangerous_command
+
+        # Validate inputs
+        if not command or not command.strip():
+            raise ValueError("Command cannot be empty")
+
+        # Security check
+        if is_dangerous_command(command):
+            logger.warning(f"Dangerous command rejected: {command[:100]}")
+            raise ValueError(f"Command rejected by security policy: {command[:100]}")
+
+        # Get server info
+        server = self.storage.state.get_server(server_name)
+        if not server:
+            raise ValueError(f"Server '{server_name}' not found in state")
+
+        server_ip = server.get("ip")
+        if not server_ip:
+            raise ValueError(f"Server '{server_name}' has no IP address")
+
+        # Get SSH key name from server state (with fallback)
+        ssh_key_name = server.get("ssh_key", f"{server_name}_key")
+
+        # Get SSH key path
+        ssh_key_path = self.ssh_manager.get_private_key_path(ssh_key_name)
+        if not ssh_key_path.exists():
+            raise FileNotFoundError(f"SSH key not found for server '{server_name}': {ssh_key_path}")
+
+        logger.info(f"Executing remote command on {server_name} ({server_ip}): {command[:100]}")
+
+        try:
+            # Connect to server via SSH
+            async with asyncssh.connect(
+                server_ip,
+                username='root',
+                client_keys=[str(ssh_key_path)],
+                known_hosts=None  # Accept any host key (development mode)
+            ) as conn:
+
+                # Build command with working directory if specified
+                full_command = command
+                if working_dir:
+                    full_command = f"cd {working_dir} && {command}"
+
+                # Execute command with timeout
+                result = await asyncio.wait_for(
+                    conn.run(full_command, check=False),  # check=False: don't raise on non-zero exit
+                    timeout=timeout
+                )
+
+                # Truncate output if too large (max 10KB)
+                stdout = result.stdout[:10240] if result.stdout else ""
+                stderr = result.stderr[:10240] if result.stderr else ""
+
+                if result.stdout and len(result.stdout) > 10240:
+                    stdout += "\n[OUTPUT TRUNCATED - exceeds 10KB limit]"
+
+                if result.stderr and len(result.stderr) > 10240:
+                    stderr += "\n[ERROR OUTPUT TRUNCATED - exceeds 10KB limit]"
+
+                success = result.exit_status == 0
+
+                logger.info(
+                    f"Command completed on {server_name}: "
+                    f"exit_code={result.exit_status}, "
+                    f"success={success}"
+                )
+
+                return {
+                    "stdout": stdout,
+                    "stderr": stderr,
+                    "exit_code": result.exit_status,
+                    "success": success
+                }
+
+        except asyncio.TimeoutError:
+            logger.error(f"Command timed out after {timeout}s on {server_name}")
+            raise
+        except Exception as e:
+            logger.error(f"SSH command execution failed on {server_name}: {e}", exc_info=True)
+            raise

@@ -9,6 +9,7 @@ Endpoints for server management:
 - POST /api/servers/{name}/setup - Setup server (async job)
 - POST /api/servers/{name}/dns - Configure DNS for server
 - GET /api/servers/{name}/dns - Get DNS configuration
+- POST /api/servers/{name}/exec - Execute remote SSH command
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -30,6 +31,11 @@ try:
         DNSGetResponse,
         DNSConfig
     )
+    from ..models.remote_exec import (
+        RemoteExecRequest,
+        RemoteExecResponse,
+        RemoteExecErrorResponse
+    )
     from ...job_manager import JobManager
     from ...orchestrator import Orchestrator
 except ImportError:
@@ -46,6 +52,11 @@ except ImportError:
         DNSConfigureResponse,
         DNSGetResponse,
         DNSConfig
+    )
+    from src.api.models.remote_exec import (
+        RemoteExecRequest,
+        RemoteExecResponse,
+        RemoteExecErrorResponse
     )
     from src.job_manager import JobManager
     from src.orchestrator import Orchestrator
@@ -276,21 +287,18 @@ async def get_server(
         server_id = server_data.get("id")
 
         if server_id:
-            # Initialize provider if needed (lazy load from vault)
-            # Detect provider from available tokens
-            if not orchestrator.provider:
-                # Try Hetzner first (primary provider)
-                token = orchestrator.storage.secrets.get_secret("hetzner_token")
-                if token:
-                    from src.providers.hetzner import HetznerProvider
-                    orchestrator.provider = HetznerProvider(token)
-                    logger.debug("Hetzner provider initialized for verification")
+            # Get provider from provider_manager (auto-initializes from vault if needed)
+            try:
+                provider = orchestrator.provider_manager.get_provider()
+            except Exception as e:
+                logger.warning(f"Could not initialize provider for verification: {e}")
+                provider = None
 
             # Only verify if provider was successfully initialized
-            if orchestrator.provider:
+            if provider:
                 try:
                     # Try to get server from Hetzner
-                    provider_server = orchestrator.provider.get_server(server_id)
+                    provider_server = provider.get_server(server_id)
 
                     # Update state with fresh data from provider
                     if provider_server:
@@ -652,3 +660,123 @@ async def get_server_dns(
     except Exception as e:
         logger.error(f"Failed to get DNS for {name}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{name}/exec", response_model=RemoteExecResponse)
+async def execute_remote_command(
+    name: str,
+    request: RemoteExecRequest,
+    orchestrator: Orchestrator = Depends(get_orchestrator)
+):
+    """
+    Execute a command on a remote server via SSH
+
+    Executes a shell command on the specified server using AsyncSSH.
+    This is a lightweight, async alternative to Ansible for quick commands.
+
+    Security:
+    - Commands are validated against dangerous patterns (rm -rf /, dd, mkfs, etc.)
+    - Output is truncated to 10KB to prevent memory issues
+    - Commands timeout after specified duration (max 300s)
+
+    Use Cases:
+    - Quick diagnostics (docker ps, df -h, systemctl status)
+    - Log inspection (tail -n 100 /var/log/app.log)
+    - Service checks (curl localhost:8080/health)
+
+    NOT recommended for:
+    - Complex automation (use Ansible instead)
+    - Multi-step workflows (use job system)
+    - Long-running operations (>5min timeout limit)
+
+    Args:
+        name: Server name
+        request: Command execution request (command, timeout, working_dir)
+
+    Returns:
+        Command execution result with stdout, stderr, exit_code
+
+    Raises:
+        404: Server not found or SSH key missing
+        400: Dangerous command rejected or validation failed
+        500: SSH connection or execution error
+
+    Example:
+        POST /api/servers/prod-server/exec
+        {
+            "command": "docker ps --format '{{.Names}}: {{.Status}}'",
+            "timeout": 10
+        }
+    """
+    # Check if server exists
+    server_data = orchestrator.storage.state.get_server(name)
+    if not server_data:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Server {name} not found"
+        )
+
+    try:
+        # Execute command via orchestrator
+        result = await orchestrator.execute_remote_command(
+            server_name=name,
+            command=request.command,
+            timeout=request.timeout,
+            working_dir=request.working_dir
+        )
+
+        logger.info(
+            f"Remote command executed on {name}: "
+            f"exit_code={result['exit_code']}, "
+            f"stdout_len={len(result['stdout'])}, "
+            f"stderr_len={len(result['stderr'])}"
+        )
+
+        # Build response
+        return RemoteExecResponse(
+            success=result["success"],
+            server_name=name,
+            command=request.command,
+            stdout=result["stdout"],
+            stderr=result["stderr"],
+            exit_code=result["exit_code"],
+            timeout_seconds=request.timeout,
+            working_dir=request.working_dir
+        )
+
+    except ValueError as e:
+        # Validation errors (dangerous command, empty command, etc.)
+        error_msg = str(e)
+        logger.warning(f"Command validation failed for {name}: {error_msg}")
+
+        raise HTTPException(
+            status_code=400,
+            detail=error_msg
+        )
+
+    except FileNotFoundError as e:
+        # SSH key not found
+        logger.error(f"SSH key not found for {name}: {e}")
+
+        raise HTTPException(
+            status_code=404,
+            detail=f"SSH key not found for server {name}"
+        )
+
+    except TimeoutError:
+        # Command timed out
+        logger.error(f"Command timed out on {name} after {request.timeout}s")
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Command timed out after {request.timeout} seconds"
+        )
+
+    except Exception as e:
+        # SSH connection or execution errors
+        logger.error(f"Remote command execution failed on {name}: {e}", exc_info=True)
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Command execution failed: {str(e)}"
+        )

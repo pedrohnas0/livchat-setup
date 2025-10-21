@@ -10,9 +10,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { APIClient } from "./api-client.js";
 import {
-  // Secrets
+  // Secrets & State
   ManageSecretsTool,
   ManageSecretsInputSchema,
+  ManageStateTool,
+  ManageStateInputSchema,
+  RemoteBashTool,
+  RemoteBashInputSchema,
   // Providers
   GetProviderInfoTool,
   GetProviderInfoInputSchema,
@@ -58,8 +62,10 @@ const server = new McpServer({
 
 // Initialize all tool handlers
 const tools = {
-  // Secrets (1 tool)
+  // Secrets & State (3 tools)
   manageSecrets: new ManageSecretsTool(apiClient),
+  manageState: new ManageStateTool(apiClient),
+  remoteBash: new RemoteBashTool(apiClient),
   // Providers (1 tool)
   getProviderInfo: new GetProviderInfoTool(apiClient),
   // Servers (5 tools)
@@ -78,12 +84,26 @@ const tools = {
   listJobs: new ListJobsTool(apiClient),
 };
 
-// Register all 13 tools with MCP server
+// Register all 15 tools with MCP server
 server.tool(
   "manage-secrets",
   "Gerencia credenciais criptografadas (tokens, passwords, SSH keys). Configure hetzner_token aqui antes de criar servidores.",
   ManageSecretsInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.manageSecrets.execute(input as any) }] })
+);
+
+server.tool(
+  "manage-state",
+  "Acesso genérico ao state.json via dot notation. Actions: get/set/delete/list. Ex: get path='servers.prod.ip' ou set path='settings.admin_email' value='admin@example.com'",
+  ManageStateInputSchema.shape,
+  async (input) => ({ content: [{ type: "text", text: await tools.manageState.execute(input as any) }] })
+);
+
+server.tool(
+  "remote-bash",
+  "Executa comandos SSH em servidores. Validação de segurança integrada. Ex: server_name='prod-server' command='docker ps' timeout=30. Alternativa async/leve ao Ansible para diagnostics.",
+  RemoteBashInputSchema.shape,
+  async (input) => ({ content: [{ type: "text", text: await tools.remoteBash.execute(input as any) }] })
 );
 
 server.tool(

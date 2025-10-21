@@ -538,6 +538,145 @@ async function runE2ETest() {
     }
 
     // ===========================================
+    // MANAGE-STATE TOOL VALIDATION
+    // ===========================================
+    console.log('\n🗂️  [NEW TOOL] Testing manage-state (dot notation state access)...');
+
+    // Test 1: List root keys
+    console.log('   1️⃣ Testing list action (root keys)...');
+    const listRootResponse = await client.callTool('manage-state', {
+      action: 'list',
+    });
+    console.log(listRootResponse);
+
+    if (!listRootResponse.includes('servers')) {
+      throw new Error('manage-state list should include "servers" key');
+    }
+    console.log('   ✅ List root keys - PASSED');
+
+    // Test 2: Get specific value via dot notation
+    console.log('   2️⃣ Testing get action (servers key)...');
+    const getServersResponse = await client.callTool('manage-state', {
+      action: 'get',
+      path: 'servers',
+    });
+    console.log(getServersResponse);
+
+    if (!getServersResponse.includes(serverName)) {
+      throw new Error(`manage-state get should include server "${serverName}"`);
+    }
+    console.log('   ✅ Get via dot notation - PASSED');
+
+    // Test 3: Set custom value
+    console.log('   3️⃣ Testing set action (custom metadata)...');
+    const setResponse = await client.callTool('manage-state', {
+      action: 'set',
+      path: 'test_metadata.e2e_run_timestamp',
+      value: new Date().toISOString(),
+    });
+    console.log(setResponse);
+
+    if (!setResponse.includes('✅')) {
+      throw new Error('manage-state set should return success');
+    }
+    console.log('   ✅ Set custom value - PASSED');
+
+    // Test 4: Get the value we just set
+    console.log('   4️⃣ Testing get on custom value...');
+    const getCustomResponse = await client.callTool('manage-state', {
+      action: 'get',
+      path: 'test_metadata.e2e_run_timestamp',
+    });
+    console.log(getCustomResponse);
+
+    if (!getCustomResponse.includes('📍 Path: test_metadata.e2e_run_timestamp')) {
+      throw new Error('manage-state should retrieve custom value');
+    }
+    console.log('   ✅ Get custom value - PASSED');
+
+    // Test 5: Delete custom value
+    console.log('   5️⃣ Testing delete action...');
+    const deleteResponse = await client.callTool('manage-state', {
+      action: 'delete',
+      path: 'test_metadata',
+    });
+    console.log(deleteResponse);
+
+    if (!deleteResponse.includes('✅')) {
+      throw new Error('manage-state delete should return success');
+    }
+    console.log('   ✅ Delete custom value - PASSED');
+
+    console.log('   🎉 manage-state tool validation COMPLETE!');
+
+    // ===========================================
+    // REMOTE-BASH TOOL VALIDATION
+    // ===========================================
+    console.log('\n💻 [NEW TOOL] Testing remote-bash (SSH command execution)...');
+
+    // Test 1: Simple diagnostic command
+    console.log('   1️⃣ Testing simple command (uname -a)...');
+    const unameResponse = await client.callTool('remote-bash', {
+      server_name: serverName,
+      command: 'uname -a',
+      timeout: 10,
+    });
+    console.log(unameResponse);
+
+    if (!unameResponse.includes('✅ Command Executed Successfully')) {
+      throw new Error('remote-bash should execute uname -a successfully');
+    }
+    if (!unameResponse.includes('Linux')) {
+      throw new Error('uname -a should return Linux');
+    }
+    console.log('   ✅ Simple command - PASSED');
+
+    // Test 2: Docker command
+    console.log('   2️⃣ Testing Docker command (docker --version)...');
+    const dockerVersionResponse = await client.callTool('remote-bash', {
+      server_name: serverName,
+      command: 'docker --version',
+      timeout: 10,
+    });
+    console.log(dockerVersionResponse);
+
+    if (!dockerVersionResponse.includes('Docker version')) {
+      throw new Error('docker --version should return version info');
+    }
+    console.log('   ✅ Docker command - PASSED');
+
+    // Test 3: List running containers
+    console.log('   3️⃣ Testing container listing (docker ps --format)...');
+    const dockerPsResponse = await client.callTool('remote-bash', {
+      server_name: serverName,
+      command: 'docker ps --format "{{.Names}}: {{.Status}}"',
+      timeout: 15,
+    });
+    console.log(dockerPsResponse);
+
+    if (!dockerPsResponse.includes('✅ Command Executed Successfully')) {
+      throw new Error('docker ps should execute successfully');
+    }
+    console.log('   ✅ Container listing - PASSED');
+
+    // Test 4: Working directory test
+    console.log('   4️⃣ Testing working_dir parameter (pwd in /tmp)...');
+    const pwdResponse = await client.callTool('remote-bash', {
+      server_name: serverName,
+      command: 'pwd',
+      working_dir: '/tmp',
+      timeout: 5,
+    });
+    console.log(pwdResponse);
+
+    if (!pwdResponse.includes('/tmp')) {
+      throw new Error('pwd with working_dir=/tmp should show /tmp');
+    }
+    console.log('   ✅ Working directory - PASSED');
+
+    console.log('   🎉 remote-bash tool validation COMPLETE!');
+
+    // ===========================================
     // Final Summary (v0.2.0)
     // ===========================================
     console.log('\n' + '='.repeat(80));
@@ -552,6 +691,9 @@ async function runE2ETest() {
     console.log('   - Mandatory DNS in setup-server');
     console.log('   - Infrastructure bundle deployment');
     console.log('   - Automatic dependency resolution');
+    console.log('✅ NEW tools tested (PLAN-09):');
+    console.log('   - manage-state: dot notation state access (get/set/delete/list)');
+    console.log('   - remote-bash: SSH command execution with security validation');
 
     // Assertions - STRICT: Verify all critical steps completed
     if (!serverCreated) throw new Error('Server must be created');

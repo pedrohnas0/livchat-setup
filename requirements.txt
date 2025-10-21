@@ -11,6 +11,7 @@ httpx>=0.25.0
 tenacity>=8.0.0
 cloudflare>=3.0.0
 jsonschema>=4.0.0
+asyncssh>=2.14.0
 
 # Development dependencies
 pytest

@@ -292,6 +292,148 @@ class StateStore:
         self.save()
         logger.debug(f"Set setting {key} = {value}")
 
+    def get_by_path(self, path: str) -> Any:
+        """
+        Get value from state using dot notation path
+
+        Args:
+            path: Dot notation path (e.g., "servers.prod.ip", "settings.admin_email")
+                  Empty string returns entire state
+
+        Returns:
+            Value at the specified path
+
+        Raises:
+            KeyError: If path does not exist
+
+        Examples:
+            >>> state.get_by_path("servers.prod.ip")
+            "1.2.3.4"
+            >>> state.get_by_path("servers.prod.dns_config")
+            {"zone_name": "example.com", "subdomain": "app"}
+        """
+        # Lazy load from disk on first access
+        if not self._loaded and self.state_file.exists():
+            self.load()
+
+        # Empty path returns root
+        if not path or path == "":
+            return self._state
+
+        # Split path and navigate
+        parts = path.split('.')
+        current = self._state
+
+        for i, part in enumerate(parts):
+            if isinstance(current, dict) and part in current:
+                current = current[part]
+            else:
+                # Build partial path for error message
+                partial_path = '.'.join(parts[:i+1])
+                raise KeyError(f"Path not found: {partial_path}")
+
+        return current
+
+    def set_by_path(self, path: str, value: Any) -> None:
+        """
+        Set value in state using dot notation path
+
+        Creates intermediate dictionaries if they don't exist.
+
+        Args:
+            path: Dot notation path (e.g., "servers.prod.ip")
+            value: Value to set (can be any type: str, int, dict, list, etc.)
+
+        Examples:
+            >>> state.set_by_path("servers.prod.ip", "1.2.3.4")
+            >>> state.set_by_path("servers.prod.dns_config", {"zone_name": "example.com"})
+            >>> state.set_by_path("servers.staging.ip", "10.0.0.1")  # Creates 'staging' dict
+        """
+        # Lazy load from disk on first access
+        if not self._loaded and self.state_file.exists():
+            self.load()
+
+        parts = path.split('.')
+        current = self._state
+
+        # Navigate to parent, creating intermediate dicts as needed
+        for part in parts[:-1]:
+            if part not in current:
+                current[part] = {}
+            current = current[part]
+
+        # Set final value
+        current[parts[-1]] = value
+        self.save()
+        logger.debug(f"Set value at path: {path}")
+
+    def delete_by_path(self, path: str) -> None:
+        """
+        Delete key from state using dot notation path
+
+        Args:
+            path: Dot notation path (e.g., "servers.prod.status")
+
+        Raises:
+            KeyError: If path does not exist
+
+        Examples:
+            >>> state.delete_by_path("servers.prod.dns_config.subdomain")
+            >>> state.delete_by_path("settings.admin_email")
+        """
+        # Lazy load from disk on first access
+        if not self._loaded and self.state_file.exists():
+            self.load()
+
+        parts = path.split('.')
+        current = self._state
+
+        # Navigate to parent
+        for part in parts[:-1]:
+            current = current[part]  # Will raise KeyError if not found
+
+        # Delete final key
+        del current[parts[-1]]  # Will raise KeyError if not found
+        self.save()
+        logger.debug(f"Deleted value at path: {path}")
+
+    def list_keys_at_path(self, path: Optional[str] = None) -> List[str]:
+        """
+        List keys at a specific path in state
+
+        Args:
+            path: Dot notation path (optional, None or empty string returns root keys)
+
+        Returns:
+            List of keys if path points to a dict, empty list otherwise
+
+        Raises:
+            KeyError: If path does not exist
+
+        Examples:
+            >>> state.list_keys_at_path()  # Root level
+            ["servers", "settings", "deployments"]
+            >>> state.list_keys_at_path("servers")
+            ["prod", "dev", "staging"]
+            >>> state.list_keys_at_path("servers.prod.ip")  # Non-dict value
+            []
+        """
+        # Lazy load from disk on first access
+        if not self._loaded and self.state_file.exists():
+            self.load()
+
+        # Get value at path
+        if path and path != "":
+            current = self.get_by_path(path)
+        else:
+            current = self._state
+
+        # Return keys if dict, empty list otherwise
+        if isinstance(current, dict):
+            return list(current.keys())
+        else:
+            return []
+
 
 class SecretsStore:
     """Manages encrypted secrets using Ansible Vault"""
