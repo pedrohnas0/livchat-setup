@@ -17,6 +17,7 @@ export const RemoteBashInputSchema = z.object({
   command: z.string().min(1).describe('Shell command to execute (e.g., "docker ps", "tail -n 100 /var/log/app.log")'),
   timeout: z.number().int().min(1).max(300).optional().default(30).describe('Command timeout in seconds (default: 30, max: 300)'),
   working_dir: z.string().optional().describe('Optional working directory to execute command in (e.g., "/var/log")'),
+  use_job: z.boolean().optional().default(false).describe('Execute via job system for long-running commands (allows monitoring via get-job-status)'),
 });
 
 export type RemoteBashInput = z.infer<typeof RemoteBashInputSchema>;
@@ -46,6 +47,7 @@ export class RemoteBashTool {
     const payload: any = {
       command: input.command,
       timeout: input.timeout || 30,
+      use_job: input.use_job || false,
     };
 
     if (input.working_dir) {
@@ -58,7 +60,12 @@ export class RemoteBashTool {
       payload
     );
 
-    // Format output based on success
+    // Check if response is a job (async execution)
+    if (response.job_id) {
+      return this.formatJobResponse(response, input.server_name);
+    }
+
+    // Format sync execution result
     return this.formatCommandResult(response);
   }
 
@@ -129,6 +136,25 @@ export class RemoteBashTool {
       output += `   - Verify permissions: ls -la <file>\n`;
       output += `   - Review logs: journalctl -xe\n`;
     }
+
+    return output;
+  }
+
+  /**
+   * Format job response for async execution
+   */
+  private formatJobResponse(response: any, serverName: string): string {
+    let output = '✅ Command execution started via job system (async)\n\n';
+    output += `🆔 Job ID: ${response.job_id}\n`;
+    output += `📦 Server: ${serverName}\n`;
+    output += `📝 Command: ${response.command || 'N/A'}\n\n`;
+    output += '⏱️  The command is running in the background.\n';
+    output += '💡 Use get-job-status to monitor progress:\n';
+    output += `   get-job-status(job_id="${response.job_id}", tail_logs=50)\n\n`;
+    output += '📊 When complete, the job result will contain:\n';
+    output += '   - stdout: Command output\n';
+    output += '   - stderr: Error output\n';
+    output += '   - exit_code: Exit status\n';
 
     return output;
   }

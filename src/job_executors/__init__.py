@@ -38,6 +38,9 @@ from .app_executors import (
 from .infrastructure_executors import (
     execute_deploy_infrastructure,
 )
+from .remote_exec_executor import (
+    execute_remote_exec,
+)
 
 # Executor Registry - Maps job_type to executor function
 EXECUTOR_REGISTRY: Dict[str, Callable[[Any, Any], Awaitable[Any]]] = {
@@ -52,4 +55,7 @@ EXECUTOR_REGISTRY: Dict[str, Callable[[Any, Any], Awaitable[Any]]] = {
 
     # Infrastructure operations
     "deploy_infrastructure": execute_deploy_infrastructure,
+
+    # Remote execution
+    "remote_exec": execute_remote_exec,
 }

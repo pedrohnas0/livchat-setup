@@ -662,17 +662,22 @@ async def get_server_dns(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{name}/exec", response_model=RemoteExecResponse)
+@router.post("/{name}/exec")
 async def execute_remote_command(
     name: str,
     request: RemoteExecRequest,
+    job_manager: JobManager = Depends(get_job_manager),
     orchestrator: Orchestrator = Depends(get_orchestrator)
 ):
     """
-    Execute a command on a remote server via SSH
+    Execute a command on a remote server via SSH (sync or async)
 
     Executes a shell command on the specified server using AsyncSSH.
-    This is a lightweight, async alternative to Ansible for quick commands.
+    Can run synchronously (immediate result) or asynchronously via job system.
+
+    Execution Mode Decision:
+    - IF use_job=True OR timeout > 60s → Async (job system) → 202 Accepted
+    - ELSE → Sync (immediate execution) → 200 OK
 
     Security:
     - Commands are validated against dangerous patterns (rm -rf /, dd, mkfs, etc.)
@@ -680,32 +685,36 @@ async def execute_remote_command(
     - Commands timeout after specified duration (max 300s)
 
     Use Cases:
-    - Quick diagnostics (docker ps, df -h, systemctl status)
-    - Log inspection (tail -n 100 /var/log/app.log)
-    - Service checks (curl localhost:8080/health)
-
-    NOT recommended for:
-    - Complex automation (use Ansible instead)
-    - Multi-step workflows (use job system)
-    - Long-running operations (>5min timeout limit)
+    - Quick diagnostics (docker ps, df -h, systemctl status) → sync
+    - Log inspection (tail -n 100 /var/log/app.log) → sync
+    - Long-running commands (docker logs with large output) → async via use_job=True
 
     Args:
         name: Server name
-        request: Command execution request (command, timeout, working_dir)
+        request: Command execution request (command, timeout, working_dir, use_job)
 
     Returns:
-        Command execution result with stdout, stderr, exit_code
+        - 200 OK: RemoteExecResponse (sync execution)
+        - 202 Accepted: Job response with job_id (async execution)
 
     Raises:
         404: Server not found or SSH key missing
         400: Dangerous command rejected or validation failed
         500: SSH connection or execution error
 
-    Example:
+    Example (sync):
         POST /api/servers/prod-server/exec
         {
-            "command": "docker ps --format '{{.Names}}: {{.Status}}'",
+            "command": "docker ps",
             "timeout": 10
+        }
+
+    Example (async):
+        POST /api/servers/prod-server/exec
+        {
+            "command": "docker logs container-id --tail 10000",
+            "timeout": 120,
+            "use_job": true
         }
     """
     # Check if server exists
@@ -716,6 +725,46 @@ async def execute_remote_command(
             detail=f"Server {name} not found"
         )
 
+    # Decision: Job-based (async) vs Direct execution (sync)
+    # Job mode if: use_job=True OR timeout > 60s
+    use_job_mode = request.use_job or request.timeout > 60
+
+    if use_job_mode:
+        # ASYNC PATH: Create job and return 202 Accepted
+        try:
+            job = await job_manager.create_job(
+                job_type="remote_exec",
+                params={
+                    "server_name": name,
+                    "command": request.command,
+                    "timeout": request.timeout,
+                    "working_dir": request.working_dir
+                }
+            )
+
+            logger.info(
+                f"Created job {job.job_id} for remote command execution on {name}: "
+                f"command='{request.command}', timeout={request.timeout}s, "
+                f"use_job={request.use_job}"
+            )
+
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=status.HTTP_202_ACCEPTED,
+                content={
+                    "job_id": job.job_id,
+                    "message": f"Command execution started via job system on {name}",
+                    "server_name": name,
+                    "command": request.command,
+                    "timeout": request.timeout
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to create remote_exec job for {name}: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to create job: {str(e)}")
+
+    # SYNC PATH: Execute command directly
     try:
         # Execute command via orchestrator
         result = await orchestrator.execute_remote_command(

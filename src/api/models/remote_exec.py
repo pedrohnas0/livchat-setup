@@ -23,6 +23,10 @@ class RemoteExecRequest(BaseModel):
         description="Optional working directory to execute command in",
         examples=["/var/log", "/opt/app", "/tmp"]
     )
+    use_job: bool = Field(
+        default=False,
+        description="Execute via job system for long-running commands (allows monitoring via get-job-status)"
+    )
 
     @field_validator('command')
     @classmethod

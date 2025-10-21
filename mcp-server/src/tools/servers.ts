@@ -50,21 +50,6 @@ export const ListServersInputSchema = z.object({
 export type ListServersInput = z.infer<typeof ListServersInputSchema>;
 
 /**
- * Schema for update-server-dns tool
- */
-export const UpdateServerDNSInputSchema = z.object({
-  server_name: z.string()
-    .describe('Nome do servidor'),
-  zone_name: z.string()
-    .min(3)
-    .describe('Domínio principal registrado no Cloudflare (ex: livchat.ai)'),
-  subdomain: z.string().optional()
-    .describe('Subdomain opcional (ex: lab, dev, prod). Apps usarão pattern: {app}.{subdomain}.{zone_name}'),
-});
-
-export type UpdateServerDNSInput = z.infer<typeof UpdateServerDNSInputSchema>;
-
-/**
  * Schema for setup-server tool (DNS required)
  */
 export const SetupServerInputSchema = z.object({
@@ -237,42 +222,6 @@ export class ListServersTool {
     }
 
     return output;
-  }
-}
-
-/**
- * Tool: update-server-dns
- */
-export class UpdateServerDNSTool {
-  constructor(private client: APIClient) {}
-
-  async execute(input: UpdateServerDNSInput): Promise<string> {
-    try {
-      await this.client.put(`/servers/${input.server_name}/dns`, {
-        zone_name: input.zone_name,
-        subdomain: input.subdomain,
-      });
-
-      let output = '✅ Configuração DNS atualizada\n\n';
-      output += `📦 Servidor: ${input.server_name}\n`;
-      output += `🌐 Zone: ${input.zone_name}\n`;
-
-      if (input.subdomain) {
-        output += `🏷️  Subdomain: ${input.subdomain}\n`;
-        output += `\n📝 Pattern de domínios: {app}.${input.subdomain}.${input.zone_name}\n`;
-        output += `   Exemplo: n8n.${input.subdomain}.${input.zone_name}\n`;
-      } else {
-        output += `\n📝 Pattern de domínios: {app}.${input.zone_name}\n`;
-        output += `   Exemplo: n8n.${input.zone_name}\n`;
-      }
-
-      output += '\n⚠️  Apps deployadas podem precisar ser redeployadas para usar os novos domínios.\n';
-      output += '💡 Use list-deployed-apps para ver apps que podem precisar atualização.';
-
-      return output;
-    } catch (error) {
-      return ErrorHandler.formatForMCP(error);
-    }
   }
 }
 

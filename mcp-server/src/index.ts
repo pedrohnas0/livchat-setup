@@ -25,8 +25,6 @@ import {
   CreateServerInputSchema,
   ListServersTool,
   ListServersInputSchema,
-  UpdateServerDNSTool,
-  UpdateServerDNSInputSchema,
   SetupServerTool,
   SetupServerInputSchema,
   DeleteServerTool,
@@ -68,10 +66,9 @@ const tools = {
   remoteBash: new RemoteBashTool(apiClient),
   // Providers (1 tool)
   getProviderInfo: new GetProviderInfoTool(apiClient),
-  // Servers (5 tools)
+  // Servers (4 tools)
   createServer: new CreateServerTool(apiClient),
   listServers: new ListServersTool(apiClient),
-  updateServerDns: new UpdateServerDNSTool(apiClient),
   setupServer: new SetupServerTool(apiClient),
   deleteServer: new DeleteServerTool(apiClient),
   // Apps (4 tools)
@@ -84,7 +81,7 @@ const tools = {
   listJobs: new ListJobsTool(apiClient),
 };
 
-// Register all 15 tools with MCP server
+// Register all 14 tools with MCP server
 server.tool(
   "manage-secrets",
   "Gerencia credenciais criptografadas (tokens, passwords, SSH keys). Configure hetzner_token aqui antes de criar servidores.",
@@ -125,13 +122,6 @@ server.tool(
   "Lista servidores. Use server_name para detalhes (IP, apps, DNS) ou include_details=true para info completa de todos.",
   ListServersInputSchema.shape,
   async (input) => ({ content: [{ type: "text", text: await tools.listServers.execute(input as any) }] })
-);
-
-server.tool(
-  "update-server-dns",
-  "Atualiza DNS do servidor (zone_name + subdomain). Use após setup se precisar alterar DNS. Apps podem precisar redeploy. Configure Cloudflare em manage-secrets antes.",
-  UpdateServerDNSInputSchema.shape,
-  async (input) => ({ content: [{ type: "text", text: await tools.updateServerDns.execute(input as any) }] })
 );
 
 server.tool(

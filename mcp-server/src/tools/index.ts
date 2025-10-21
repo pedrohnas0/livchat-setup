@@ -1,5 +1,5 @@
 /**
- * Tool Registry - Central export for all 15 MCP tools
+ * Tool Registry - Central export for all 14 MCP tools
  */
 
 // Export all tool classes
@@ -12,8 +12,6 @@ export {
   CreateServerInputSchema,
   ListServersTool,
   ListServersInputSchema,
-  UpdateServerDNSTool,
-  UpdateServerDNSInputSchema,
   SetupServerTool,
   SetupServerInputSchema,
   DeleteServerTool,
@@ -44,7 +42,6 @@ export type { GetProviderInfoInput } from './providers.js';
 export type {
   CreateServerInput,
   ListServersInput,
-  UpdateServerDNSInput,
   SetupServerInput,
   DeleteServerInput,
 } from './servers.js';
