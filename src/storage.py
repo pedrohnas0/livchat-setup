@@ -235,8 +235,13 @@ class StateStore:
         Args:
             jobs: List of job dictionaries
         """
-        if not self._loaded and self.state_file.exists():
+        # CRITICAL: Always load fresh state before saving to prevent data loss
+        # This ensures we don't overwrite servers/deployments with stale data
+        if self.state_file.exists():
             self.load()
+        elif not self._loaded:
+            # File doesn't exist yet - initialize minimal state
+            logger.warning("State file doesn't exist - initializing minimal state for jobs")
 
         self._state["jobs"] = jobs
         self.save()

@@ -20,6 +20,7 @@ try:
     from .server_manager import ServerManager
     from .deployment_manager import DeploymentManager
     from .dns_manager import DNSManager
+    from ..security.command_validator import is_dangerous_command
 except ImportError:
     from storage import StorageManager
     from ssh_manager import SSHKeyManager
@@ -32,6 +33,7 @@ except ImportError:
     from server_manager import ServerManager
     from deployment_manager import DeploymentManager
     from dns_manager import DNSManager
+    from security.command_validator import is_dangerous_command
 
 logger = logging.getLogger(__name__)
 
@@ -575,4 +577,153 @@ class Orchestrator:
             raise
         except Exception as e:
             logger.error(f"SSH command execution failed on {server_name}: {e}", exc_info=True)
+            raise
+
+    async def execute_remote_command_streaming(
+        self,
+        server_name: str,
+        command: str,
+        timeout: int = 30,
+        working_dir: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Execute remote command with real-time stdout/stderr streaming
+
+        Logs each line of output via logger.info() for automatic capture
+        by JobLogManager. Ideal for long-running jobs.
+
+        Args:
+            server_name: Name of the server
+            command: Command to execute
+            timeout: Maximum execution time in seconds (default: 30)
+            working_dir: Optional working directory
+
+        Returns:
+            Dict with stdout, stderr, exit_code, success
+
+        Raises:
+            ValueError: Invalid input or server not found
+            FileNotFoundError: SSH key not found
+            asyncio.TimeoutError: Command exceeded timeout
+        """
+        # Validate inputs
+        if not command or not command.strip():
+            raise ValueError("Command cannot be empty")
+
+        # Security check
+        if is_dangerous_command(command):
+            logger.warning(f"Dangerous command rejected: {command[:100]}")
+            raise ValueError(f"Command rejected by security policy: {command[:100]}")
+
+        # Get server info
+        server = self.storage.state.get_server(server_name)
+        if not server:
+            raise ValueError(f"Server '{server_name}' not found in state")
+
+        server_ip = server.get("ip")
+        if not server_ip:
+            raise ValueError(f"Server '{server_name}' has no IP address")
+
+        # Get SSH key name from server state (with fallback)
+        ssh_key_name = server.get("ssh_key", f"{server_name}_key")
+
+        # Get SSH key path
+        ssh_key_path = self.ssh_manager.get_private_key_path(ssh_key_name)
+        if not ssh_key_path.exists():
+            raise FileNotFoundError(f"SSH key not found for server '{server_name}': {ssh_key_path}")
+
+        logger.info(f"Connecting to {server_name} ({server_ip}) via SSH...")
+
+        # Import asyncssh here to avoid import errors if not installed
+        import asyncssh
+
+        try:
+            # Connect to server via SSH
+            async with asyncssh.connect(
+                server_ip,
+                username='root',
+                client_keys=[str(ssh_key_path)],
+                known_hosts=None  # Accept any host key (development mode)
+            ) as conn:
+
+                # Build command with working directory if specified
+                full_command = command
+                if working_dir:
+                    full_command = f"cd {working_dir} && {command}"
+
+                logger.info(f"Executing: {command[:100]}")
+
+                # Streaming with create_process
+                process = await conn.create_process(full_command)
+
+                try:
+                    stdout_lines = []
+                    stderr_lines = []
+
+                    async def stream_stdout():
+                        """Stream stdout line by line"""
+                        while True:
+                            line = await process.stdout.readline()
+                            if not line:
+                                break
+                            # asyncssh returns strings, not bytes - just strip newlines
+                            cleaned = line.rstrip() if isinstance(line, str) else line.decode('utf-8', errors='replace').rstrip()
+                            stdout_lines.append(cleaned)
+                            logger.info(f"{cleaned}")  # Auto-captured by JobLogManager!
+
+                    async def stream_stderr():
+                        """Stream stderr line by line"""
+                        while True:
+                            line = await process.stderr.readline()
+                            if not line:
+                                break
+                            # asyncssh returns strings, not bytes - just strip newlines
+                            cleaned = line.rstrip() if isinstance(line, str) else line.decode('utf-8', errors='replace').rstrip()
+                            stderr_lines.append(cleaned)
+                            logger.warning(f"{cleaned}")  # Warning level for errors
+
+                    # Run both streams in parallel with timeout
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.gather(stream_stdout(), stream_stderr()),
+                            timeout=timeout
+                        )
+                    except asyncio.TimeoutError:
+                        logger.error(f"Command timed out after {timeout}s")
+                        process.kill()
+                        raise
+
+                    # Wait for process to finish
+                    await process.wait()
+                    exit_code = process.returncode
+                    success = exit_code == 0
+
+                    # Truncate if too many lines (max 1000 lines ~ 10KB)
+                    if len(stdout_lines) > 1000:
+                        stdout_lines = stdout_lines[:1000]
+                        logger.warning("Output truncated: exceeded 1000 lines limit")
+
+                    if len(stderr_lines) > 1000:
+                        stderr_lines = stderr_lines[:1000]
+                        logger.warning("Error output truncated: exceeded 1000 lines limit")
+
+                    logger.info(f"Command finished: exit_code={exit_code}")
+
+                    return {
+                        "stdout": "\n".join(stdout_lines),
+                        "stderr": "\n".join(stderr_lines),
+                        "exit_code": exit_code,
+                        "success": success
+                    }
+
+                finally:
+                    # Ensure process is closed
+                    process.close()
+                    await process.wait()
+
+        except asyncio.TimeoutError:
+            logger.error(f"Command timed out after {timeout}s on {server_name}")
+            raise
+        except Exception as e:
+            logger.error(f"SSH streaming command execution failed on {server_name}: {e}", exc_info=True)
             raise

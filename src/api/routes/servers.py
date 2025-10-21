@@ -141,15 +141,18 @@ def _sync_servers_with_provider(orchestrator: Orchestrator) -> None:
     3. Marks servers in state but not in provider as 'deleted_externally'
     4. Updates status/IP for servers present in both
 
-    Gracefully degrades if provider unavailable (no token, network error, etc.)
+    Raises ValueError if no provider is configured (missing hetzner_token).
+    Gracefully degrades on network errors, logging warning instead of failing.
     """
     try:
         # Get provider (auto-initializes from vault if needed)
         provider = orchestrator.provider_manager.get_provider()
 
         if not provider:
-            logger.debug("No provider available - skipping sync")
-            return
+            raise ValueError(
+                "No cloud provider configured. Hetzner API token (hetzner_token) is required to list servers. "
+                "Please configure it using the manage-secrets tool."
+            )
 
         # Fetch servers from provider
         provider_servers = provider.list_servers()

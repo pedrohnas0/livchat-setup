@@ -230,6 +230,9 @@ class JobLogManager:
         """
         Get recent logs from memory (O(1), no disk I/O)
 
+        Falls back to reading from log file if memory handler is no longer available
+        (job has completed and handler was cleaned up).
+
         Args:
             job_id: Job identifier
             limit: Maximum number of logs to return (default: 50)
@@ -237,10 +240,13 @@ class JobLogManager:
         Returns:
             List of log dicts with timestamp, level, message
         """
-        if job_id not in self.memory_handlers:
-            return []
+        # Try memory first (fast, if job is still running)
+        if job_id in self.memory_handlers:
+            return self.memory_handlers[job_id].get_recent_logs(limit)
 
-        return self.memory_handlers[job_id].get_recent_logs(limit)
+        # Fallback: read from log file and parse into dict format
+        log_lines = self.read_log_file(job_id, tail=limit)
+        return self._parse_log_lines_to_dicts(log_lines)
 
     def read_log_file(
         self,
@@ -327,6 +333,41 @@ class JobLogManager:
         except Exception as e:
             logger.error(f"Error reading log file {file_path}: {e}")
             return []
+
+    def _parse_log_lines_to_dicts(self, log_lines: List[str]) -> List[Dict[str, str]]:
+        """
+        Parse log file lines into structured dicts
+
+        Parses lines in format: [2025-10-21 17:24:14] INFO: Message here
+
+        Args:
+            log_lines: Raw log lines from file
+
+        Returns:
+            List of log dicts with timestamp and message
+        """
+        import re
+
+        parsed_logs = []
+        # Pattern: [YYYY-MM-DD HH:MM:SS] LEVEL: message
+        pattern = r'\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] (\w+): (.*)'
+
+        for line in log_lines:
+            match = re.match(pattern, line)
+            if match:
+                timestamp, level, message = match.groups()
+                parsed_logs.append({
+                    "timestamp": timestamp,
+                    "message": message  # API expects just timestamp+message (no level)
+                })
+            else:
+                # Fallback for unparseable lines - treat as plain message
+                parsed_logs.append({
+                    "timestamp": "",
+                    "message": line
+                })
+
+        return parsed_logs
 
     def cleanup_old_logs(self, max_age_hours: int = 72) -> int:
         """

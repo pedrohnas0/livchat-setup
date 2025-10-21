@@ -46,9 +46,9 @@ async def execute_remote_exec(job: Job, orchestrator: Orchestrator) -> Dict[str,
     job.advance_step(1, 2, f"Connecting to {server_name} via SSH")
 
     try:
-        # Execute command via orchestrator
-        # NOTE: execute_remote_command is already ASYNC
-        result = await orchestrator.execute_remote_command(
+        # Execute command with real-time streaming
+        # Logs are automatically captured by JobLogManager from logger.info() calls
+        result = await orchestrator.execute_remote_command_streaming(
             server_name=server_name,
             command=command,
             timeout=timeout,
