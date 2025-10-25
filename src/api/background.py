@@ -5,7 +5,7 @@ Provides lifespan context manager that starts/stops the JobExecutor
 during FastAPI application startup/shutdown.
 
 Usage:
-    from src.api.background import lifespan
+    from api.background import lifespan
 
     app = FastAPI(lifespan=lifespan)
 """
@@ -17,8 +17,8 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI
 
-from src.job_executor import JobExecutor
-from src.api.dependencies import get_orchestrator, get_job_manager
+from job_executor import JobExecutor
+from api.dependencies import get_orchestrator, get_job_manager
 
 logger = logging.getLogger(__name__)
 

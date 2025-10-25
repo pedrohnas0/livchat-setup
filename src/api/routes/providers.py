@@ -26,8 +26,8 @@ try:
     from ...orchestrator import Orchestrator
     from ...providers.hetzner import HetznerProvider
 except ImportError:
-    from src.api.dependencies import get_orchestrator
-    from src.api.models.provider import (
+    from api.dependencies import get_orchestrator
+    from api.models.provider import (
         ProviderInfo,
         ProviderListResponse,
         ProviderDetailsResponse,
@@ -36,8 +36,8 @@ except ImportError:
         ServerTypeInfo,
         ServerTypeListResponse
     )
-    from src.orchestrator import Orchestrator
-    from src.providers.hetzner import HetznerProvider
+    from orchestrator import Orchestrator
+    from providers.hetzner import HetznerProvider
 
 logger = logging.getLogger(__name__)
 

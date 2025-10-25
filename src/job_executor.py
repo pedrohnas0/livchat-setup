@@ -15,8 +15,8 @@ import asyncio
 import logging
 from typing import Optional, Callable, Awaitable, Dict
 
-from src.job_manager import JobManager, Job, JobStatus
-from src.orchestrator import Orchestrator
+from job_manager import JobManager, Job, JobStatus
+from orchestrator import Orchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -224,7 +224,7 @@ class JobExecutor:
             Async function that takes Job and returns result,
             or None if job type is unknown
         """
-        from src.job_executors import EXECUTOR_REGISTRY
+        from job_executors import EXECUTOR_REGISTRY
 
         # Get base executor function
         base_func = EXECUTOR_REGISTRY.get(job_type)

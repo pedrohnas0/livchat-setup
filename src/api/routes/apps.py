@@ -27,8 +27,8 @@ try:
     from ...orchestrator import Orchestrator
     from ...app_registry import AppRegistry
 except ImportError:
-    from src.api.dependencies import get_job_manager, get_orchestrator
-    from src.api.models.app import (
+    from api.dependencies import get_job_manager, get_orchestrator
+    from api.models.app import (
         AppDeployRequest,
         AppDeployResponse,
         AppUndeployResponse,
@@ -37,9 +37,9 @@ except ImportError:
         DeployedAppInfo,
         DeployedAppListResponse
     )
-    from src.job_manager import JobManager
-    from src.orchestrator import Orchestrator
-    from src.app_registry import AppRegistry
+    from job_manager import JobManager
+    from orchestrator import Orchestrator
+    from app_registry import AppRegistry
 
 logger = logging.getLogger(__name__)
 

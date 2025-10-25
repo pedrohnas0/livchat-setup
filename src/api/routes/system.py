@@ -16,9 +16,9 @@ try:
     from ..models.common import SuccessResponse, MessageResponse
     from ...orchestrator import Orchestrator
 except ImportError:
-    from src.api.dependencies import get_orchestrator
-    from src.api.models.common import SuccessResponse, MessageResponse
-    from src.orchestrator import Orchestrator
+    from api.dependencies import get_orchestrator
+    from api.models.common import SuccessResponse, MessageResponse
+    from orchestrator import Orchestrator
 
 logger = logging.getLogger(__name__)
 

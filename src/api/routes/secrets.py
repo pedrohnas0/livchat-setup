@@ -22,15 +22,15 @@ try:
     )
     from ...orchestrator import Orchestrator
 except ImportError:
-    from src.api.dependencies import get_orchestrator
-    from src.api.models.secrets import (
+    from api.dependencies import get_orchestrator
+    from api.models.secrets import (
         SecretListResponse,
         SecretGetResponse,
         SecretSetRequest,
         SecretSetResponse,
         SecretDeleteResponse
     )
-    from src.orchestrator import Orchestrator
+    from orchestrator import Orchestrator
 
 logger = logging.getLogger(__name__)
 

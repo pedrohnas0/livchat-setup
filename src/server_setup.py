@@ -43,7 +43,10 @@ class ServerSetup:
         self.playbook_dir = Path(__file__).parent.parent / "ansible" / "playbooks"
 
         # Initialize AppRegistry for YAML definitions
-        from .app_registry import AppRegistry
+        try:
+            from .app_registry import AppRegistry
+        except ImportError:
+            from app_registry import AppRegistry
         self.app_registry = AppRegistry()
 
         # Load infrastructure definitions
@@ -566,7 +569,10 @@ class ServerSetup:
         # Generate secure password if not provided
         config = config or {}
         if "portainer_admin_password" not in config:
-            from .security_utils import PasswordGenerator, CredentialsManager
+            try:
+                from .security_utils import PasswordGenerator, CredentialsManager
+            except ImportError:
+                from security_utils import PasswordGenerator, CredentialsManager
 
             if self.storage:
                 # Use CredentialsManager for proper vault integration

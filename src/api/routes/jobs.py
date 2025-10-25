@@ -23,15 +23,15 @@ try:
     from ..models.common import SuccessResponse
     from ...job_manager import JobManager, JobStatus
 except ImportError:
-    from src.api.dependencies import get_job_manager
-    from src.api.models.job import (
+    from api.dependencies import get_job_manager
+    from api.models.job import (
         JobResponse,
         JobListResponse,
         JobCancelResponse,
         JobStatusEnum
     )
-    from src.api.models.common import SuccessResponse
-    from src.job_manager import JobManager, JobStatus
+    from api.models.common import SuccessResponse
+    from job_manager import JobManager, JobStatus
 
 logger = logging.getLogger(__name__)
 

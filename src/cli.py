@@ -152,7 +152,7 @@ def main():
 
             # Run the server
             uvicorn.run(
-                "src.api.server:app",
+                "api.server:app",
                 host=args.host,
                 port=args.port,
                 reload=args.reload,

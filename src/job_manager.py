@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 import logging
 import functools
 
-from src.job_log_manager import JobLogManager
+from job_log_manager import JobLogManager
 
 logger = logging.getLogger(__name__)
 

@@ -11,8 +11,8 @@ Each executor takes (Job, Orchestrator) and updates job progress.
 import logging
 from typing import Any, Dict
 
-from src.job_manager import Job
-from src.orchestrator import Orchestrator
+from job_manager import Job
+from orchestrator import Orchestrator
 
 logger = logging.getLogger(__name__)
 

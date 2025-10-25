@@ -29,10 +29,10 @@ except ImportError:
     from integrations.portainer import PortainerClient
     from ansible_executor import AnsibleRunner
     from server_setup import ServerSetup
-    from provider_manager import ProviderManager
-    from server_manager import ServerManager
-    from deployment_manager import DeploymentManager
-    from dns_manager import DNSManager
+    from orchestrator.provider_manager import ProviderManager
+    from orchestrator.server_manager import ServerManager
+    from orchestrator.deployment_manager import DeploymentManager
+    from orchestrator.dns_manager import DNSManager
     from security.command_validator import is_dangerous_command
 
 logger = logging.getLogger(__name__)

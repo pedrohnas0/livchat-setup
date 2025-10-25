@@ -39,8 +39,8 @@ try:
     from ...job_manager import JobManager
     from ...orchestrator import Orchestrator
 except ImportError:
-    from src.api.dependencies import get_job_manager, get_orchestrator
-    from src.api.models.server import (
+    from api.dependencies import get_job_manager, get_orchestrator
+    from api.models.server import (
         ServerCreateRequest,
         ServerSetupRequest,
         ServerInfo,
@@ -53,13 +53,13 @@ except ImportError:
         DNSGetResponse,
         DNSConfig
     )
-    from src.api.models.remote_exec import (
+    from api.models.remote_exec import (
         RemoteExecRequest,
         RemoteExecResponse,
         RemoteExecErrorResponse
     )
-    from src.job_manager import JobManager
-    from src.orchestrator import Orchestrator
+    from job_manager import JobManager
+    from orchestrator import Orchestrator
 
 logger = logging.getLogger(__name__)
 

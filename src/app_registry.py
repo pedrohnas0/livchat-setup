@@ -7,7 +7,11 @@ import json
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
-from .security_utils import PasswordGenerator
+
+try:
+    from .security_utils import PasswordGenerator
+except ImportError:
+    from security_utils import PasswordGenerator
 
 logger = logging.getLogger(__name__)
 

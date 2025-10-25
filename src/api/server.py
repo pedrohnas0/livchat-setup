@@ -13,8 +13,8 @@ try:
     from .routes import system, jobs, servers, apps, providers, secrets, state
     from .background import lifespan
 except ImportError:
-    from src.api.routes import system, jobs, servers, apps, providers, secrets, state
-    from src.api.background import lifespan
+    from api.routes import system, jobs, servers, apps, providers, secrets, state
+    from api.background import lifespan
 
 # Configure logging
 logging.basicConfig(

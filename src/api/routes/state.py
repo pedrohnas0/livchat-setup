@@ -24,8 +24,8 @@ try:
     )
     from ...orchestrator import Orchestrator
 except ImportError:
-    from src.api.dependencies import get_orchestrator
-    from src.api.models.state import (
+    from api.dependencies import get_orchestrator
+    from api.models.state import (
         StateGetRequest,
         StateSetRequest,
         StateDeleteRequest,
@@ -33,7 +33,7 @@ except ImportError:
         StateResponse,
         StateAction
     )
-    from src.orchestrator import Orchestrator
+    from orchestrator import Orchestrator
 
 logger = logging.getLogger(__name__)
 

@@ -13,8 +13,8 @@ try:
     from ...orchestrator import Orchestrator
     from ..job_manager import JobManager
 except ImportError:
-    from src.orchestrator import Orchestrator
-    from src.job_manager import JobManager
+    from orchestrator import Orchestrator
+    from job_manager import JobManager
 
 logger = logging.getLogger(__name__)
 
