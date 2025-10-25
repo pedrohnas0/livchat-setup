@@ -30,7 +30,10 @@ class ProviderManager:
     def _init_provider(self, provider_name: str, token: str):
         """Initialize provider instance"""
         if provider_name.lower() == "hetzner":
-            from ..providers.hetzner import HetznerProvider
+            try:
+                from ..providers.hetzner import HetznerProvider
+            except ImportError:
+                from providers.hetzner import HetznerProvider
             self.provider = HetznerProvider(token)
             logger.info("Initialized Hetzner provider")
         else:

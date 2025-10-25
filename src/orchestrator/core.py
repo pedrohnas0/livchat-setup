@@ -497,7 +497,6 @@ class Orchestrator:
             >>> print(result["stdout"])
         """
         import asyncssh
-        from ..security import is_dangerous_command
 
         # Validate inputs
         if not command or not command.strip():

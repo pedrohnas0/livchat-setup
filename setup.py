@@ -7,7 +7,7 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 setup(
     name="livchat-setup",
-    version="0.2.8",
+    version="0.2.11",
     author="Pedro Nascimento",
     author_email="team@livchat.ai",
     description="Automated server setup and application deployment system with AI control via MCP",
@@ -55,6 +55,7 @@ setup(
         "tenacity>=8.0.0",
         "cloudflare>=3.0.0",
         "jsonschema>=4.0.0",
+        "asyncssh>=2.14.0",
         "fastapi>=0.104.0",
         "uvicorn[standard]>=0.24.0",
         "pydantic>=2.0.0",
